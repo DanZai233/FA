@@ -166,11 +166,36 @@ type TabKey = 'home' | 'cycle' | 'partner' | 'square' | 'profile';
 type OfflineRecord = {
   id: string;
   label: '法了！' | '被法了！';
+  role: 'initiator' | 'receiver';
   occurredAt: string;
   timestamp: number;
 };
 
 const offlineStorageKey = 'faleme.offline.records';
+
+const randomItem = <T,>(items: T[]) => items[Math.floor(Math.random() * items.length)];
+
+const randomPhraseParts = (): Record<PhraseSlot, string> => ({
+  tone: randomItem(phraseBook.tones),
+  subject: randomItem(phraseBook.subjects),
+  action: randomItem(phraseBook.actions),
+  ending: randomItem(phraseBook.endings),
+});
+
+const roleTheme = (role: UserRole) => {
+  const isReceiver = role === 'receiver';
+  return {
+    isReceiver,
+    mode: isReceiver ? 'receiver' as const : 'initiator' as const,
+    label: isReceiver ? '被法了！' as const : '法了！' as const,
+    subtitle: isReceiver ? '被温柔照顾，也要有边界' : '主动出发，但别忘了安全带',
+    tabLabel: isReceiver ? '我是“被法”的一方' : '我是“法”的一方',
+    pageBg: isReceiver ? 'bg-[#F4F0FF]' : 'bg-[#F2F2F7]',
+    heroBg: isReceiver ? 'from-violet-500 to-fuchsia-400' : 'from-rose-500 to-pink-400',
+    accentText: isReceiver ? 'text-violet-500' : 'text-rose-500',
+    accentSoft: isReceiver ? 'bg-violet-50 text-violet-600' : 'bg-rose-50 text-rose-500',
+  };
+};
 
 export default function App() {
   const path = window.location.pathname;
@@ -188,7 +213,7 @@ function MobileApp() {
   const [profile, setProfile] = useState<UserProfile>({
     id: 'u-demo',
     nickname: '嘴硬但健康的成年人',
-    role: 'switch',
+    role: 'initiator',
     adultConfirmed: true,
     partnerStatus: 'linked',
   });
@@ -204,13 +229,6 @@ function MobileApp() {
   const [remotePrediction, setRemotePrediction] = useState<CyclePrediction | null>(null);
   const prediction = remotePrediction ?? localPrediction;
   const stats = useMemo(() => buildStats(records), [records]);
-
-  if (offlineMode) {
-    return <OfflineModeView onExit={() => {
-      localStorage.setItem('faleme.offline.enabled', 'false');
-      setOfflineMode(false);
-    }} />;
-  }
 
   useEffect(() => {
     let ignore = false;
@@ -252,6 +270,13 @@ function MobileApp() {
     };
   }, []);
 
+  if (offlineMode) {
+    return <OfflineModeView onExit={() => {
+      localStorage.setItem('faleme.offline.enabled', 'false');
+      setOfflineMode(false);
+    }} />;
+  }
+
   const saveRecord = (draft: RecordDraft) => {
     const riskLevel = calculateRisk(draft.protection, draft.type, prediction.todayAdvice.level);
     const optimisticRecord: IntimacyRecord = {
@@ -288,17 +313,19 @@ function MobileApp() {
       .catch(() => setApiStatus('offline-demo'));
   };
 
+  const theme = roleTheme(profile.role);
+
   return (
     <div className="flex min-h-screen justify-center bg-slate-100">
-      <div className="ios-safe-top relative flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden bg-[#F2F2F7] shadow-2xl">
+      <div className={`ios-safe-top relative flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden ${theme.pageBg} shadow-2xl`}>
         <main className="flex-1 overflow-y-auto pb-28">
           {activeTab === 'home' && (
             <HomeView
               advice={prediction.todayAdvice}
               records={records}
               stats={stats}
-              apiStatus={apiStatus}
               summary={summary}
+              role={profile.role}
               onAddRecord={() => setRecordSheetOpen(true)}
               onEnterOffline={() => {
                 localStorage.setItem('faleme.offline.enabled', 'true');
@@ -312,6 +339,7 @@ function MobileApp() {
           )}
           {activeTab === 'cycle' && (
             <CycleView
+              records={records}
               cycle={cycle}
               prediction={prediction}
               onCycleChange={(nextCycle) => {
@@ -342,6 +370,14 @@ function MobileApp() {
                 api.createPartnerMessage(phrase)
                   .then((message) => {
                     setPartnerMessages((prev) => prev.map((item) => (item.id === optimistic.id ? message : item)));
+                    setApiStatus('connected');
+                  })
+                  .catch(() => setApiStatus('offline-demo'));
+              }}
+              onAcceptInvite={(inviteCode) => {
+                api.acceptPartnerInvite(inviteCode)
+                  .then((link) => {
+                    setProfile((prev) => ({...prev, partnerStatus: link.status}));
                     setApiStatus('connected');
                   })
                   .catch(() => setApiStatus('offline-demo'));
@@ -440,7 +476,7 @@ function MobileApp() {
         <nav className="ios-safe-bottom absolute bottom-0 z-20 w-full border-t border-slate-200 bg-white/90 backdrop-blur-xl">
           <div className="grid h-16 grid-cols-5 px-2">
             <TabItem icon={<Flame size={22} />} label="记录" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
-            <TabItem icon={<CalendarIcon size={22} />} label="周期" active={activeTab === 'cycle'} onClick={() => setActiveTab('cycle')} />
+            <TabItem icon={<CalendarIcon size={22} />} label="法法日历" active={activeTab === 'cycle'} onClick={() => setActiveTab('cycle')} />
             <TabItem icon={<Heart size={22} />} label="伴侣" active={activeTab === 'partner'} onClick={() => setActiveTab('partner')} />
             <TabItem icon={<MessageCircle size={22} />} label="广场" active={activeTab === 'square'} onClick={() => setActiveTab('square')} />
             <TabItem icon={<User size={22} />} label="我的" active={activeTab === 'profile'} onClick={() => setActiveTab('profile')} />
@@ -462,8 +498,8 @@ function HomeView({
   advice,
   records,
   stats,
-  apiStatus,
   summary,
+  role,
   onAddRecord,
   onEnterOffline,
   onDeleteRecord,
@@ -471,45 +507,53 @@ function HomeView({
   advice: HealthAdvice;
   records: IntimacyRecord[];
   stats: ReturnType<typeof buildStats>;
-  apiStatus: 'connected' | 'offline-demo';
   summary: ReminderSummary | null;
+  role: UserRole;
   onAddRecord: () => void;
   onEnterOffline: () => void;
   onDeleteRecord: (id: string) => void;
 }) {
   const latest = records[0];
+  const theme = roleTheme(role);
+  const highRiskCount = records.filter((record) => record.riskLevel === 'high').length;
+  const protectedCount = records.filter((record) => record.protection !== 'none').length;
+  const soloCount = records.filter((record) => record.type === 'solo').length;
   return (
     <section className="space-y-6 p-5 pt-10">
-      <header className="space-y-2 text-center">
-        <p className="text-xs font-black uppercase tracking-[0.28em] text-rose-500">adult wellness</p>
-        <h1 className="text-4xl font-black tracking-tight text-slate-950">{brand.name}</h1>
-        <p className="mx-auto max-w-xs text-sm leading-6 text-slate-500">{brand.slogan}</p>
-        <span className="inline-flex rounded-full bg-white px-3 py-1 text-xs font-black text-slate-400 shadow-sm">
-          {apiStatus === 'connected' ? '后端已连接' : '本地演示模式'}
-        </span>
-      </header>
-
-      <div className="grid grid-cols-2 gap-4">
+      <div className={`relative overflow-hidden rounded-[2.4rem] bg-gradient-to-br ${theme.heroBg} p-6 text-white shadow-[0_30px_80px_-30px_rgba(244,63,94,0.85)]`}>
+        <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-white/20 blur-2xl" />
+        <div className="absolute -bottom-20 left-10 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
+        <header className="relative">
+          <p className="text-xs font-black uppercase tracking-[0.28em] text-white/55">adult wellness</p>
+          <h1 className="mt-3 text-5xl font-black tracking-tight">{brand.name}</h1>
+          <p className="mt-3 max-w-[17rem] text-sm font-semibold leading-6 text-white/78">{brand.slogan}</p>
+        </header>
         <button
           onClick={onAddRecord}
-          className="flex h-44 flex-col items-center justify-center rounded-[2rem] border-4 border-white/30 bg-gradient-to-tr from-rose-500 to-pink-400 text-white shadow-[0_24px_70px_-18px_rgba(244,63,94,0.75)] transition active:scale-95"
+          className="relative mt-8 flex h-56 w-56 flex-col items-center justify-center rounded-full border border-white/30 bg-white/18 text-white shadow-2xl shadow-black/20 backdrop-blur-xl transition active:scale-95"
         >
-          <Flame size={52} strokeWidth={1.5} />
-          <span className="mt-2 text-3xl font-black tracking-wider">法了！</span>
-          <span className="mt-1 text-xs font-semibold text-white/80">主动出发</span>
+          {theme.isReceiver ? <Heart size={68} strokeWidth={1.5} /> : <Flame size={68} strokeWidth={1.5} />}
+          <span className="mt-2 text-4xl font-black tracking-wider">{theme.label}</span>
+          <span className="mt-2 max-w-36 text-center text-xs font-bold text-white/75">{theme.subtitle}</span>
         </button>
-        <button
-          onClick={onAddRecord}
-          className="flex h-44 flex-col items-center justify-center rounded-[2rem] border-4 border-white/50 bg-white text-rose-500 shadow-sm transition active:scale-95"
-        >
-          <Heart size={52} strokeWidth={1.5} />
-          <span className="mt-2 text-3xl font-black tracking-wider">被法了！</span>
-          <span className="mt-1 text-xs font-semibold text-slate-400">被温柔照顾</span>
-        </button>
+        <div className="relative mt-6 grid grid-cols-3 gap-2">
+          <HeroPill label="保护率" value={`${stats.safeRate}%`} />
+          <HeroPill label="本月" value={`${stats.monthCount} 次`} />
+          <HeroPill label="最近" value={latest?.occurredAt.slice(5) ?? '暂无'} />
+        </div>
       </div>
+
       <button onClick={onEnterOffline} className="w-full rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-700">
         进入完全离线模式
       </button>
+
+      <Card title="今日安全流程" action="3 步别省">
+        <div className="grid gap-3">
+          <ChecklistRow done={stats.safeRate >= 70} title="保护措施准备好" body={`${protectedCount}/${records.length || 1} 条记录使用了保护或低风险方式。`} />
+          <ChecklistRow done={highRiskCount === 0} title="高风险记录归零" body={highRiskCount === 0 ? '目前没有高风险记录，安全员先不骂人。' : `有 ${highRiskCount} 条高风险记录，别把侥幸当玄学。`} />
+          <ChecklistRow done={soloCount > 0} title="单人排解也被允许" body={soloCount > 0 ? '你已经记录过单人排解，身体管理很成年人。' : '无伴侣时可以选择安全、清洁、不过度的单人排解。'} />
+        </div>
+      </Card>
 
       <AdviceCard advice={advice} />
       {summary && (
@@ -541,6 +585,7 @@ function HomeView({
 }
 
 function OfflineModeView({onExit}: {onExit: () => void}) {
+  const [role, setRole] = useState<UserRole>(() => (localStorage.getItem('faleme.offline.role') === 'receiver' ? 'receiver' : 'initiator'));
   const [records, setRecords] = useState<OfflineRecord[]>(() => {
     try {
       return JSON.parse(localStorage.getItem(offlineStorageKey) ?? '[]') as OfflineRecord[];
@@ -549,11 +594,19 @@ function OfflineModeView({onExit}: {onExit: () => void}) {
     }
   });
 
-  const saveOfflineRecord = (label: OfflineRecord['label']) => {
+  const theme = roleTheme(role);
+
+  const changeRole = (nextRole: UserRole) => {
+    setRole(nextRole);
+    localStorage.setItem('faleme.offline.role', nextRole);
+  };
+
+  const saveOfflineRecord = () => {
     const next = [
       {
         id: `offline-${Date.now()}`,
-        label,
+        label: theme.label,
+        role: theme.mode,
         occurredAt: isoDate(new Date()),
         timestamp: Date.now(),
       },
@@ -572,33 +625,32 @@ function OfflineModeView({onExit}: {onExit: () => void}) {
 
   return (
     <div className="flex min-h-screen justify-center bg-slate-100">
-      <div className="ios-safe-top relative flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden bg-[#F2F2F7] p-5 shadow-2xl">
+      <div className={`ios-safe-top relative flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden ${theme.pageBg} p-5 shadow-2xl`}>
         <header className="pt-8 text-center">
-          <p className="text-xs font-black uppercase tracking-[0.28em] text-rose-500">offline mode</p>
+          <p className={`text-xs font-black uppercase tracking-[0.28em] ${theme.accentText}`}>offline mode</p>
           <h1 className="mt-2 text-4xl font-black tracking-tight text-slate-950">完全离线</h1>
           <p className="mx-auto mt-2 max-w-xs text-sm leading-6 text-slate-500">
             不联网、不同步、不社交。只记录今天到底是法了，还是被法了。
           </p>
         </header>
 
-        <div className="mt-10 grid grid-cols-2 gap-4">
-          <button
-            onClick={() => saveOfflineRecord('法了！')}
-            className="flex h-52 flex-col items-center justify-center rounded-[2.25rem] bg-gradient-to-tr from-rose-500 to-pink-400 text-white shadow-[0_24px_70px_-18px_rgba(244,63,94,0.75)] active:scale-95"
-          >
-            <Flame size={62} className="drop-shadow-sm" />
-            <span className="mt-3 text-4xl font-black">法了！</span>
-            <span className="mt-2 text-xs font-bold text-white/75">本地记一笔</span>
+        <div className="mt-8 grid grid-cols-2 gap-2 rounded-3xl bg-white/70 p-1 shadow-sm">
+          <button onClick={() => changeRole('initiator')} className={`rounded-[1.35rem] py-3 text-xs font-black ${role !== 'receiver' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-400'}`}>
+            我是“法”的一方
           </button>
-          <button
-            onClick={() => saveOfflineRecord('被法了！')}
-            className="flex h-52 flex-col items-center justify-center rounded-[2.25rem] bg-white text-rose-500 shadow-sm active:scale-95"
-          >
-            <Heart size={62} />
-            <span className="mt-3 text-3xl font-black">被法了！</span>
-            <span className="mt-2 text-xs font-bold text-slate-400">本地记一笔</span>
+          <button onClick={() => changeRole('receiver')} className={`rounded-[1.35rem] py-3 text-xs font-black ${role === 'receiver' ? 'bg-white text-slate-950 shadow-sm' : 'text-slate-400'}`}>
+            我是“被法”的一方
           </button>
         </div>
+
+        <button
+          onClick={saveOfflineRecord}
+          className={`mx-auto mt-10 flex h-64 w-64 flex-col items-center justify-center rounded-full bg-gradient-to-tr ${theme.heroBg} text-white shadow-[0_24px_70px_-18px_rgba(244,63,94,0.75)] active:scale-95`}
+        >
+          {theme.isReceiver ? <Heart size={70} /> : <Flame size={70} />}
+          <span className="mt-3 text-4xl font-black">{theme.label}</span>
+          <span className="mt-2 text-xs font-bold text-white/75">完全本地，只记这一笔</span>
+        </button>
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <MetricCard label="今日" value={`${todayCount}`} suffix="次" icon={<Activity size={18} />} />
@@ -613,7 +665,7 @@ function OfflineModeView({onExit}: {onExit: () => void}) {
                   <p className="text-sm font-black text-slate-900">{record.label}</p>
                   <p className="mt-1 text-xs text-slate-400">{record.occurredAt}</p>
                 </div>
-                <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-rose-500">本地</span>
+                <span className={`rounded-full bg-white px-3 py-1 text-xs font-black ${record.role === 'receiver' ? 'text-violet-500' : 'text-rose-500'}`}>本地</span>
               </div>
             ))}
             {records.length === 0 && <p className="py-6 text-center text-sm text-slate-400">还没记录。宇宙很安静，你也可以很安静。</p>}
@@ -634,18 +686,54 @@ function OfflineModeView({onExit}: {onExit: () => void}) {
 }
 
 function CycleView({
+  records,
   cycle,
   prediction,
   onCycleChange,
 }: {
+  records: IntimacyRecord[];
   cycle: CycleRecord;
   prediction: CyclePrediction;
   onCycleChange: (cycle: CycleRecord) => void;
 }) {
+  const monthDays = buildCalendarDays(records);
+  const recentRecords = records.slice(0, 4);
+  const activeDays = monthDays.filter((day) => day.count > 0).length;
   return (
     <section className="space-y-5 p-5 pt-8">
-      <PageTitle title="周期雷达" subtitle="预测不是算命，身体信号优先。" />
+      <PageTitle title="法法日历" subtitle="该记就记，该停就停。日历只负责诚实，不负责嘴硬。" />
       <AdviceCard advice={prediction.todayAdvice} />
+
+      <div className="overflow-hidden rounded-[2rem] bg-slate-950 p-5 text-white shadow-xl">
+        <p className="text-xs font-black uppercase tracking-[0.25em] text-white/35">cycle forecast</p>
+        <h2 className="mt-2 text-2xl font-black">身体天气预报</h2>
+        <p className="mt-2 text-sm leading-6 text-white/65">预测只能提醒，不能替代身体感受。疼痛、异常出血或明显不适时，优先咨询医生。</p>
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <InfoPillDark label="活跃天" value={`${activeDays} 天`} />
+          <InfoPillDark label="下次" value={prediction.nextPeriodStart.slice(5)} />
+          <InfoPillDark label="易孕窗" value={prediction.fertileStart.slice(5)} />
+        </div>
+      </div>
+
+      <Card title="本月火力图" action="本机视图">
+        <div className="grid grid-cols-7 gap-2">
+          {['日', '一', '二', '三', '四', '五', '六'].map((day) => (
+            <div key={day} className="text-center text-[10px] font-black text-slate-400">{day}</div>
+          ))}
+          {monthDays.map((day) => (
+            <div key={day.key} className="flex justify-center">
+              {day.day ? (
+                <div className={`flex h-9 w-9 items-center justify-center rounded-full text-xs font-black ${
+                  day.count > 0 ? 'bg-rose-500 text-white shadow-md shadow-rose-200' : day.isToday ? 'bg-slate-950 text-white' : 'bg-slate-50 text-slate-500'
+                }`}>
+                  {day.day}
+                </div>
+              ) : <div className="h-9 w-9" />}
+            </div>
+          ))}
+        </div>
+        <p className="mt-4 text-xs leading-5 text-slate-400">粉色代表有记录，黑色代表今天。记录多了不是 KPI，身体舒服才算赢。</p>
+      </Card>
 
       <Card title="本次记录" action="可随时修正">
         <div className="grid grid-cols-2 gap-3">
@@ -659,6 +747,24 @@ function CycleView({
       <Card title="预测窗口" action="非医疗建议">
         <TimelineItem icon={<CalendarIcon size={18} />} title="预计经期" body={`${prediction.nextPeriodStart} 至 ${prediction.nextPeriodEnd}`} />
         <TimelineItem icon={<Siren size={18} />} title="高风险提醒" body={`${prediction.fertileStart} 至 ${prediction.fertileEnd}，别把侥幸当玄学。`} />
+      </Card>
+
+      <Card title="日历回放" action={`${recentRecords.length} 条最近记录`}>
+        <div className="space-y-3">
+          {recentRecords.map((record) => (
+            <div key={record.id} className="flex items-center gap-3 rounded-3xl bg-slate-50 p-4">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-rose-500 shadow-sm">
+                <Flame size={20} />
+              </div>
+              <div className="flex-1">
+                <p className="text-sm font-black text-slate-900">{record.occurredAt}</p>
+                <p className="mt-1 text-xs text-slate-500">{intimacyTypeLabels[record.type]} · {riskTone[record.riskLevel]}</p>
+              </div>
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-slate-500">{record.rating}/5</span>
+            </div>
+          ))}
+          {recentRecords.length === 0 && <p className="py-5 text-center text-sm text-slate-400">暂无记录。日历先空着，身体别空转。</p>}
+        </div>
       </Card>
 
       <Card title="快速修正" action="Demo 本地保存">
@@ -690,41 +796,72 @@ function PartnerView({
   messages,
   onStatusChange,
   onSendMessage,
+  onAcceptInvite,
 }: {
   status: PartnerLinkStatus;
   messages: PartnerMessage[];
   onStatusChange: (status: PartnerLinkStatus) => void;
   onSendMessage: (phrase: string) => void;
+  onAcceptInvite: (inviteCode: string) => void;
 }) {
   const linked = status === 'linked';
-  const [parts, setParts] = useState<Record<PhraseSlot, string>>({
-    tone: phraseBook.tones[2],
-    subject: phraseBook.subjects[2],
-    action: phraseBook.actions[2],
-    ending: phraseBook.endings[3],
-  });
+  const [inviteCode, setInviteCode] = useState('');
+  const [parts, setParts] = useState<Record<PhraseSlot, string>>(() => randomPhraseParts());
   const phrase = `${parts.tone} / ${parts.subject} / ${parts.action} / ${parts.ending}`;
   return (
     <section className="space-y-5 p-5 pt-8">
       <PageTitle title="伴侣绑定" subtitle="两个人的事，权限也要两个人确认。" />
-      <Card title={linked ? '已绑定：匿名心动搭子' : '还没绑定'} action={linked ? '共享开启' : '邀请码 6 位'}>
-        <div className="rounded-3xl bg-gradient-to-br from-rose-50 to-pink-50 p-5">
-          <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-rose-500 shadow-sm">
-              <Heart className={linked ? 'fill-rose-500' : ''} size={26} />
-            </div>
-            <div>
-              <p className="font-black text-slate-900">{linked ? '共享记录需要逐项授权' : '生成邀请码给对方'}</p>
-              <p className="mt-1 text-sm leading-5 text-slate-500">
-                {linked ? '对方看不到你的全部历史，别让亲密关系变成后台审计。' : '对方接受后才能同步，不玩偷看那套。'}
-              </p>
-            </div>
+      <div className="overflow-hidden rounded-[2rem] bg-slate-950 p-5 text-white shadow-xl">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-white/40">partner link</p>
+            <h2 className="mt-2 text-2xl font-black">{linked ? '已绑定心动搭子' : '等待绑定搭子'}</h2>
+            <p className="mt-2 text-sm leading-6 text-white/65">
+              {linked ? '共享不是偷看，所有记录都要逐项授权。' : '把邀请码交给对方，双方确认后再进入同步模式。'}
+            </p>
           </div>
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-rose-200">
+            <Heart className={linked ? 'fill-rose-200' : ''} size={28} />
+          </div>
+        </div>
+        <div className="mt-6 rounded-3xl bg-white p-4 text-slate-950">
+          <p className="text-xs font-black text-slate-400">绑定邀请码</p>
+          <div className="mt-2 flex items-center justify-between">
+            <span className="font-mono text-4xl font-black tracking-[0.18em]">FALV1</span>
+            <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-black text-rose-500">{linked ? '已确认' : '待发送'}</span>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[11px] font-black">
+          <div className="rounded-2xl bg-white/10 p-3">生成邀请码</div>
+          <div className="rounded-2xl bg-white/10 p-3">对方确认</div>
+          <div className="rounded-2xl bg-white/10 p-3">逐项共享</div>
+        </div>
+        <button
+          onClick={() => {
+            if (!linked) navigator.clipboard?.writeText('FALV1').catch(() => {});
+            onStatusChange(linked ? 'none' : 'linked');
+          }}
+          className="mt-5 w-full rounded-2xl bg-white py-3 text-sm font-black text-slate-950 active:scale-[0.99]"
+        >
+          {linked ? '解除绑定' : '生成并复制邀请码'}
+        </button>
+      </div>
+
+      <Card title="接受对方邀请" action="输入 6 位码">
+        <div className="space-y-3">
+          <input
+            value={inviteCode}
+            onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
+            placeholder="例如 FALV1"
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-lg font-black tracking-[0.18em] outline-none focus:border-rose-300"
+          />
           <button
-            onClick={() => onStatusChange(linked ? 'none' : 'linked')}
-            className="mt-5 w-full rounded-2xl bg-slate-950 py-3 text-sm font-black text-white active:scale-[0.99]"
+            onClick={() => {
+              if (inviteCode.trim()) onAcceptInvite(inviteCode.trim());
+            }}
+            className="w-full rounded-2xl bg-slate-950 py-3 text-sm font-black text-white"
           >
-            {linked ? '解除绑定' : '生成邀请码 FALV1'}
+            接受邀请并绑定
           </button>
         </div>
       </Card>
@@ -735,11 +872,25 @@ function PartnerView({
         <TimelineItem icon={<Lock size={18} />} title="隐私边界" body="亲密记录默认只属于本人，共享需要明确开关。" />
       </Card>
 
+      <Card title="共享权限" action="逐项授权">
+        <div className="grid grid-cols-2 gap-3">
+          <PermissionTile active={linked} title="共享最近记录" body="只同步你主动勾选的记录" />
+          <PermissionTile active={false} title="共享周期提醒" body="默认关闭，避免越界关心" />
+          <PermissionTile active={linked} title="伴侣留言箱" body="只允许预设短句，不开放自由聊" />
+          <PermissionTile active={false} title="位置与通讯录" body="不采集，也不需要" />
+        </div>
+      </Card>
+
       <Card title="给伴侣发一句" action="预设短句">
         <div className="space-y-3">
           <div className="rounded-3xl bg-slate-950 p-4 text-sm font-bold leading-6 text-white">{phrase}</div>
           <PhraseSelect label="语气" value={parts.tone} values={phraseBook.tones} onChange={(tone) => setParts((prev) => ({...prev, tone}))} />
+          <PhraseSelect label="主语" value={parts.subject} values={phraseBook.subjects} onChange={(subject) => setParts((prev) => ({...prev, subject}))} />
           <PhraseSelect label="动作" value={parts.action} values={phraseBook.actions} onChange={(action) => setParts((prev) => ({...prev, action}))} />
+          <PhraseSelect label="收尾" value={parts.ending} values={phraseBook.endings} onChange={(ending) => setParts((prev) => ({...prev, ending}))} />
+          <button onClick={() => setParts(randomPhraseParts())} className="w-full rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-700">
+            随机来一句
+          </button>
           <button onClick={() => onSendMessage(phrase)} className="w-full rounded-2xl bg-rose-500 py-3 text-sm font-black text-white">
             发送给伴侣
           </button>
@@ -775,9 +926,31 @@ function SquareView({
   onBlock: (id: string) => void;
 }) {
   const [match, setMatch] = useState<MatchCard | null>(matchSeed);
+  const totalResonance = posts.reduce((sum, post) => sum + post.resonanceCount, 0);
+  const shakeMatch = () => {
+    api.shake()
+      .then(setMatch)
+      .catch(() =>
+        setMatch({
+          ...matchSeed,
+          id: `match-${Date.now()}`,
+          phrase: `${randomItem(phraseBook.tones)} / ${randomItem(phraseBook.subjects)} / ${randomItem(phraseBook.actions)} / ${randomItem(phraseBook.endings)}`,
+        }),
+      );
+  };
   return (
     <section className="space-y-5 p-5 pt-8">
       <PageTitle title="预设广场" subtitle="不开放自由聊天。成年人发言，也要带刹车。" />
+      <div className="rounded-[2rem] bg-gradient-to-br from-slate-950 to-slate-800 p-5 text-white shadow-xl">
+        <p className="text-xs font-black uppercase tracking-[0.25em] text-white/35">safe square</p>
+        <h2 className="mt-2 text-2xl font-black">今日广场温度</h2>
+        <p className="mt-2 text-sm leading-6 text-white/65">只允许预设拼句、共鸣、举报和屏蔽。热闹可以，失控不行。</p>
+        <div className="mt-5 grid grid-cols-3 gap-2">
+          <InfoPillDark label="留言" value={`${posts.length} 条`} />
+          <InfoPillDark label="共鸣" value={`${totalResonance}`} />
+          <InfoPillDark label="自由聊" value="0" />
+        </div>
+      </div>
       <PhraseComposer onPublish={onPublish} />
 
       <Card title="摇一摇轻匹配" action="只给预设短句">
@@ -791,11 +964,11 @@ function SquareView({
             <p className="text-sm text-slate-500">暂时没有匹配。宇宙建议你先喝水。</p>
           )}
           <button
-            onClick={() => setMatch((prev) => (prev ? null : matchSeed))}
+            onClick={shakeMatch}
             className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-800"
           >
             <RefreshCw size={16} />
-            摇一下，但不乱来
+            摇一下，随机匹配预设句
           </button>
         </div>
       </Card>
@@ -809,6 +982,9 @@ function SquareView({
                 <span>{post.createdAt}</span>
               </div>
               <p className="mt-3 text-sm font-bold leading-6 text-slate-800">{post.phrase}</p>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className="h-full rounded-full bg-gradient-to-r from-rose-400 to-pink-500" style={{width: `${Math.min(100, Math.max(12, post.resonanceCount / 2))}%`}} />
+              </div>
               <div className="mt-3 flex gap-2">
                 <button
                   onClick={() => onResonate(post.id)}
@@ -1027,12 +1203,7 @@ function RecordSheet({
 }
 
 function PhraseComposer({onPublish}: {onPublish: (phrase: string) => void}) {
-  const [parts, setParts] = useState<Record<PhraseSlot, string>>({
-    tone: phraseBook.tones[0],
-    subject: phraseBook.subjects[0],
-    action: phraseBook.actions[0],
-    ending: phraseBook.endings[0],
-  });
+  const [parts, setParts] = useState<Record<PhraseSlot, string>>(() => randomPhraseParts());
   const phrase = `${parts.tone} / ${parts.subject} / ${parts.action} / ${parts.ending}`;
 
   return (
@@ -1046,6 +1217,13 @@ function PhraseComposer({onPublish}: {onPublish: (phrase: string) => void}) {
         <PhraseSelect label="主语" value={parts.subject} values={phraseBook.subjects} onChange={(subject) => setParts((prev) => ({...prev, subject}))} />
         <PhraseSelect label="动作" value={parts.action} values={phraseBook.actions} onChange={(action) => setParts((prev) => ({...prev, action}))} />
         <PhraseSelect label="收尾" value={parts.ending} values={phraseBook.endings} onChange={(ending) => setParts((prev) => ({...prev, ending}))} />
+        <button
+          onClick={() => setParts(randomPhraseParts())}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-700"
+        >
+          <RefreshCw size={16} />
+          随机重组一句
+        </button>
         <button
           onClick={() => onPublish(phrase)}
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-rose-500 py-3 text-sm font-black text-white"
@@ -1191,6 +1369,41 @@ function MetricCard({label, value, suffix, icon}: {label: string; value: string;
   );
 }
 
+function HeroPill({label, value}: {label: string; value: string}) {
+  return (
+    <div className="rounded-2xl bg-white/15 p-3 backdrop-blur-xl">
+      <p className="text-[10px] font-black text-white/50">{label}</p>
+      <p className="mt-1 text-sm font-black text-white">{value}</p>
+    </div>
+  );
+}
+
+function ChecklistRow({done, title, body}: {done: boolean; title: string; body: string}) {
+  return (
+    <div className="flex gap-3 rounded-3xl bg-slate-50 p-4">
+      <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl ${done ? 'bg-emerald-100 text-emerald-600' : 'bg-amber-100 text-amber-600'}`}>
+        {done ? <CheckCircle2 size={20} /> : <Siren size={20} />}
+      </div>
+      <div>
+        <p className="text-sm font-black text-slate-900">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-slate-500">{body}</p>
+      </div>
+    </div>
+  );
+}
+
+function PermissionTile({active, title, body}: {active: boolean; title: string; body: string}) {
+  return (
+    <div className={`rounded-3xl p-4 ${active ? 'bg-rose-50' : 'bg-slate-50'}`}>
+      <div className={`mb-3 flex h-9 w-9 items-center justify-center rounded-2xl ${active ? 'bg-rose-500 text-white' : 'bg-white text-slate-400'}`}>
+        {active ? <CheckCircle2 size={18} /> : <Lock size={18} />}
+      </div>
+      <p className="text-sm font-black text-slate-900">{title}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-500">{body}</p>
+    </div>
+  );
+}
+
 function renderRecordRow(record: IntimacyRecord, onDelete?: (id: string) => void) {
   return (
     <div key={record.id} className="flex items-center justify-between rounded-3xl bg-slate-50 p-4">
@@ -1228,6 +1441,25 @@ function InfoPillDark({label, value}: {label: string; value: string}) {
       <p className="mt-1 text-sm font-black text-white">{value}</p>
     </div>
   );
+}
+
+function buildCalendarDays(records: IntimacyRecord[]) {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay();
+  const counts = records.reduce<Record<string, number>>((acc, record) => {
+    acc[record.occurredAt] = (acc[record.occurredAt] ?? 0) + 1;
+    return acc;
+  }, {});
+  const blanks = Array.from({length: firstDay}, (_, index) => ({key: `blank-${index}`, day: 0, count: 0, isToday: false}));
+  const days = Array.from({length: daysInMonth}, (_, index) => {
+    const day = index + 1;
+    const date = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return {key: date, day, count: counts[date] ?? 0, isToday: date === isoDate(now)};
+  });
+  return [...blanks, ...days];
 }
 
 function TimelineItem({icon, title, body}: {icon: React.ReactNode; title: string; body: string}) {

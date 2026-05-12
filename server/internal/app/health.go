@@ -1,6 +1,9 @@
 package app
 
-import "time"
+import (
+	"math/rand"
+	"time"
+)
 
 var knowledgeCards = []KnowledgeCard{
 	{
@@ -33,13 +36,45 @@ var phraseTemplates = []PhraseTemplate{
 	{ID: "tone-1", Slot: "tone", Text: "今晚月色不错", Scenario: "square"},
 	{ID: "tone-2", Slot: "tone", Text: "理智正在下线", Scenario: "square"},
 	{ID: "tone-3", Slot: "tone", Text: "安全员已上线", Scenario: "partner"},
+	{ID: "tone-4", Slot: "tone", Text: "嘴硬但诚实", Scenario: "square"},
+	{ID: "tone-5", Slot: "tone", Text: "荷尔蒙请求发言", Scenario: "match"},
+	{ID: "tone-6", Slot: "tone", Text: "边界感已加载", Scenario: "partner"},
+	{ID: "tone-7", Slot: "tone", Text: "温柔正在巡逻", Scenario: "partner"},
 	{ID: "subject-1", Slot: "subject", Text: "我的荷尔蒙", Scenario: "square"},
 	{ID: "subject-2", Slot: "subject", Text: "这位成年人", Scenario: "match"},
+	{ID: "subject-3", Slot: "subject", Text: "今日小火苗", Scenario: "partner"},
+	{ID: "subject-4", Slot: "subject", Text: "身体信号", Scenario: "square"},
+	{ID: "subject-5", Slot: "subject", Text: "单人玩家", Scenario: "square"},
+	{ID: "subject-6", Slot: "subject", Text: "亲密副本", Scenario: "match"},
 	{ID: "action-1", Slot: "action", Text: "申请抱抱", Scenario: "partner"},
 	{ID: "action-2", Slot: "action", Text: "建议冷静三分钟", Scenario: "square"},
 	{ID: "action-3", Slot: "action", Text: "提醒戴好装备", Scenario: "partner"},
+	{ID: "action-4", Slot: "action", Text: "请求确认同意", Scenario: "partner"},
+	{ID: "action-5", Slot: "action", Text: "先去洗手", Scenario: "square"},
+	{ID: "action-6", Slot: "action", Text: "暂停无保护冲锋", Scenario: "square"},
+	{ID: "action-7", Slot: "action", Text: "选择单人排解", Scenario: "match"},
 	{ID: "ending-1", Slot: "ending", Text: "但安全第一", Scenario: "square"},
 	{ID: "ending-2", Slot: "ending", Text: "尊重同意最性感", Scenario: "partner"},
+	{ID: "ending-3", Slot: "ending", Text: "不舒服就立刻停", Scenario: "partner"},
+	{ID: "ending-4", Slot: "ending", Text: "别拿概率开玩笑", Scenario: "square"},
+	{ID: "ending-5", Slot: "ending", Text: "成年人不赌售后", Scenario: "square"},
+	{ID: "ending-6", Slot: "ending", Text: "温柔也要有边界", Scenario: "partner"},
+	{ID: "ending-7", Slot: "ending", Text: "可以荒唐但别糊涂", Scenario: "match"},
+}
+
+func randomComposedPhrase() string {
+	slots := map[string][]string{}
+	for _, item := range phraseTemplates {
+		slots[item.Slot] = append(slots[item.Slot], item.Text)
+	}
+	pick := func(slot string) string {
+		items := slots[slot]
+		if len(items) == 0 {
+			return ""
+		}
+		return items[rand.Intn(len(items))]
+	}
+	return pick("tone") + " / " + pick("subject") + " / " + pick("action") + " / " + pick("ending")
 }
 
 func PredictCycle(cycles []CycleRecord, records []IntimacyRecord) CyclePrediction {

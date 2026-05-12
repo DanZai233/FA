@@ -24,6 +24,10 @@ struct APIService {
         try await request("/api/v1/cycles/prediction")
     }
 
+    func createCycle(_ cycle: CycleRecord) async throws -> CycleRecord {
+        try await request("/api/v1/cycles", method: "POST", body: cycle)
+    }
+
     func reminderSummary() async throws -> ReminderSummary {
         try await request("/api/v1/reminders/summary")
     }
@@ -42,6 +46,22 @@ struct APIService {
 
     func partnerMessages() async throws -> [PartnerMessage] {
         try await request("/api/v1/partners/messages")
+    }
+
+    func partner() async throws -> PartnerLink {
+        try await request("/api/v1/partners")
+    }
+
+    func createPartnerInvite() async throws -> PartnerLink {
+        try await request("/api/v1/partners/invite", method: "POST", body: [String: String]())
+    }
+
+    func acceptPartnerInvite(inviteCode: String) async throws -> PartnerLink {
+        try await request("/api/v1/partners/accept", method: "POST", body: ["inviteCode": inviteCode])
+    }
+
+    func unlinkPartner() async throws -> PartnerLink {
+        try await request("/api/v1/partners", method: "DELETE", body: [String: String]())
     }
 
     func createPartnerMessage(phrase: String) async throws -> PartnerMessage {

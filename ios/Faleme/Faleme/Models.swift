@@ -120,6 +120,17 @@ struct PartnerMessage: Codable, Identifiable {
     var createdAt: String
 }
 
+struct PartnerLink: Codable, Identifiable {
+    var id: String
+    var userId: String
+    var partnerId: String?
+    var inviteCode: String
+    var status: String
+    var canShare: Bool
+    var createdAt: String
+    var confirmedAt: String?
+}
+
 struct KnowledgeCard: Codable, Identifiable {
     let id: String
     let category: String

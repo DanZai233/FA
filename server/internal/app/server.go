@@ -293,7 +293,7 @@ func (s *Server) handleShake(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, MatchCard{
 		ID:        "match-demo",
 		Alias:     "附近不存在的人",
-		Phrase:    "今晚月色不错 / 这位成年人 / 申请抱抱 / 但安全第一",
+		Phrase:    randomComposedPhrase(),
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	})
 }

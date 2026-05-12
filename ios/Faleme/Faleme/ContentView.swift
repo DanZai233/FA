@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct ContentView: View {
     @EnvironmentObject private var store: AppStore
@@ -13,7 +14,7 @@ struct ContentView: View {
                     HomeView()
                         .tabItem { Label("记录", systemImage: "flame.fill") }
                     CycleView()
-                        .tabItem { Label("周期", systemImage: "calendar") }
+                        .tabItem { Label("法法日历", systemImage: "calendar") }
                     PartnerView()
                         .tabItem { Label("伴侣", systemImage: "heart.fill") }
                     SquareView()
@@ -33,23 +34,38 @@ struct ContentView: View {
 private struct OfflineRecord: Codable, Identifiable {
     let id: String
     let label: String
+    let role: String
     let occurredAt: String
     let timestamp: TimeInterval
 }
 
 private struct OfflineModeView: View {
     @AppStorage("faleme.offline.enabled") private var offlineMode = true
+    @AppStorage("faleme.offline.role") private var roleRaw = UserRole.initiator.rawValue
     @State private var records: [OfflineRecord] = Self.loadRecords()
 
     var body: some View {
+        let role = UserRole(rawValue: roleRaw) ?? .initiator
+        let theme = RoleTheme(role: role)
         ScrollView {
             VStack(spacing: 20) {
                 PageHeader(title: "完全离线", subtitle: "不联网、不同步、不社交。只记录今天是法了，还是被法了。")
-                HStack(spacing: 14) {
-                    offlineButton(title: "法了！", subtitle: "主动出发", icon: "flame.fill", filled: true)
-                        .onTapGesture { save("法了！") }
-                    offlineButton(title: "被法了！", subtitle: "被温柔照顾", icon: "heart.fill", filled: false)
-                        .onTapGesture { save("被法了！") }
+                roleSwitcher(role: role)
+                Button {
+                    save(theme.buttonTitle, role: role)
+                } label: {
+                    VStack(spacing: 12) {
+                        Image(systemName: theme.icon)
+                            .font(.system(size: 68))
+                        Text(theme.buttonTitle)
+                            .font(.system(size: 38, weight: .black))
+                        Text("完全本地，只记这一笔")
+                            .font(.caption.bold())
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: 260, height: 260)
+                    .background(theme.gradient, in: Circle())
+                    .shadow(color: theme.shadow, radius: 26, y: 18)
                 }
                 HStack {
                     MetricPill(label: "今日", value: "\(todayCount) 次")
@@ -68,7 +84,7 @@ private struct OfflineModeView: View {
                             Spacer()
                             Text("本地")
                                 .font(.caption.bold())
-                                .foregroundStyle(Color.rose)
+                                .foregroundStyle(record.role == UserRole.receiver.rawValue ? Color.violet : Color.rose)
                         }
                         .padding(.vertical, 6)
                     }
@@ -100,23 +116,30 @@ private struct OfflineModeView: View {
         records.filter { $0.occurredAt == Self.todayString }.count
     }
 
-    private func offlineButton(title: String, subtitle: String, icon: String, filled: Bool) -> some View {
-        VStack(spacing: 10) {
-            Image(systemName: icon)
-                .font(.system(size: 42))
-            Text(title)
-                .font(.system(size: title.count > 3 ? 26 : 32, weight: .black))
-            Text(subtitle)
-                .font(.caption.bold())
+    private func roleSwitcher(role: UserRole) -> some View {
+        HStack(spacing: 8) {
+            roleButton("我是“法”的一方", selected: role != .receiver) {
+                roleRaw = UserRole.initiator.rawValue
+            }
+            roleButton("我是“被法”的一方", selected: role == .receiver) {
+                roleRaw = UserRole.receiver.rawValue
+            }
         }
-        .foregroundStyle(filled ? .white : Color.rose)
-        .frame(maxWidth: .infinity)
-        .frame(height: 190)
-        .background(filled ? AnyShapeStyle(LinearGradient(colors: [Color.rose, Color.pink], startPoint: .topLeading, endPoint: .bottomTrailing)) : AnyShapeStyle(.white), in: RoundedRectangle(cornerRadius: 32))
+        .padding(4)
+        .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 24))
     }
 
-    private func save(_ label: String) {
-        records.insert(OfflineRecord(id: UUID().uuidString, label: label, occurredAt: Self.todayString, timestamp: Date().timeIntervalSince1970), at: 0)
+    private func roleButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
+        Button(title, action: action)
+            .font(.caption.bold())
+            .foregroundStyle(selected ? .primary : .secondary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(selected ? AnyShapeStyle(.white) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 18))
+    }
+
+    private func save(_ label: String, role: UserRole) {
+        records.insert(OfflineRecord(id: UUID().uuidString, label: label, role: role.rawValue, occurredAt: Self.todayString, timestamp: Date().timeIntervalSince1970), at: 0)
         Self.store(records)
     }
 
@@ -137,42 +160,61 @@ private struct OfflineModeView: View {
     }
 }
 
+private struct RoleTheme {
+    let role: UserRole
+
+    var isReceiver: Bool {
+        role == .receiver
+    }
+
+    var buttonTitle: String {
+        isReceiver ? "被法了！" : "法了！"
+    }
+
+    var subtitle: String {
+        isReceiver ? "被温柔照顾，也要有边界" : "主动出发，但别忘了安全带"
+    }
+
+    var icon: String {
+        isReceiver ? "heart.fill" : "flame.fill"
+    }
+
+    var gradient: LinearGradient {
+        LinearGradient(
+            colors: isReceiver ? [Color.violet, Color.pink] : [Color.rose, Color.pink],
+            startPoint: .topLeading,
+            endPoint: .bottomTrailing
+        )
+    }
+
+    var shadow: Color {
+        (isReceiver ? Color.violet : Color.rose).opacity(0.35)
+    }
+}
+
+private let phraseTones = ["今晚月色不错", "理智正在下线", "安全员已上线", "嘴硬但诚实", "荷尔蒙请求发言", "气氛有点危险", "边界感已加载", "温柔正在巡逻"]
+private let phraseSubjects = ["我的荷尔蒙", "这位成年人", "今日小火苗", "伴侣雷达", "身体信号", "单人玩家", "亲密副本", "边界按钮"]
+private let phraseActions = ["申请抱抱", "建议冷静三分钟", "提醒戴好装备", "请求确认同意", "先去洗手", "打开温柔模式", "暂停无保护冲锋", "选择单人排解"]
+private let phraseEndings = ["但安全第一", "请勿无证驾驶", "先喝水再说", "尊重同意最性感", "不舒服就立刻停", "别拿概率开玩笑", "温柔也要有边界", "可以荒唐但别糊涂"]
+
+private func randomPhrase() -> String {
+    "\(phraseTones.randomElement() ?? phraseTones[0]) / \(phraseSubjects.randomElement() ?? phraseSubjects[0]) / \(phraseActions.randomElement() ?? phraseActions[0]) / \(phraseEndings.randomElement() ?? phraseEndings[0])"
+}
+
 private struct HomeView: View {
     @EnvironmentObject private var store: AppStore
     @State private var isAdding = false
 
     var body: some View {
+        let theme = RoleTheme(role: store.role)
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
-                    Text("法了么")
-                        .font(.largeTitle.bold())
-                    Text("嘴上很荒唐，身体很诚实，安全要更诚实。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.center)
-                    Text(store.isOfflineDemo ? "本地演示模式" : "后端已连接")
-                        .font(.caption.bold())
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(.white, in: Capsule())
-
-                    Button {
+                    HomeHeroView(theme: theme, records: store.records) {
                         isAdding = true
-                    } label: {
-                        VStack(spacing: 10) {
-                            Image(systemName: "flame.fill")
-                                .font(.system(size: 68))
-                            Text("记一笔")
-                                .font(.system(size: 38, weight: .black))
-                            Text("别怕，数据只替你嘴硬")
-                                .font(.subheadline.bold())
-                        }
-                        .foregroundStyle(.white)
-                        .frame(width: 250, height: 250)
-                        .background(LinearGradient(colors: [Color.rose, Color.pink], startPoint: .topLeading, endPoint: .bottomTrailing), in: Circle())
                     }
 
+                    SafetyChecklistCard(records: store.records)
                     AdviceCard(advice: store.prediction)
                     Card(title: store.reminder.title) {
                         Text(store.reminder.body)
@@ -199,6 +241,113 @@ private struct HomeView: View {
                 AddRecordView()
             }
         }
+    }
+}
+
+private struct HomeHeroView: View {
+    let theme: RoleTheme
+    let records: [IntimacyRecord]
+    var onTap: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("adult wellness")
+                    .font(.caption2.bold())
+                    .tracking(3)
+                    .foregroundStyle(.white.opacity(0.55))
+                Text("法了么")
+                    .font(.system(size: 48, weight: .black))
+                    .foregroundStyle(.white)
+                Text("嘴上很荒唐，身体很诚实，安全要更诚实。")
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.white.opacity(0.78))
+            }
+            Button(action: onTap) {
+                VStack(spacing: 10) {
+                    Image(systemName: theme.icon)
+                        .font(.system(size: 64))
+                    Text(theme.buttonTitle)
+                        .font(.system(size: 38, weight: .black))
+                    Text(theme.subtitle)
+                        .font(.caption.bold())
+                        .foregroundStyle(.white.opacity(0.76))
+                }
+                .foregroundStyle(.white)
+                .frame(width: 220, height: 220)
+                .background(.white.opacity(0.18), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
+                .shadow(color: .black.opacity(0.18), radius: 24, y: 16)
+            }
+            HStack(spacing: 8) {
+                HeroStatPill(label: "保护率", value: "\(safeRate(records))%")
+                HeroStatPill(label: "本月", value: "\(monthCount(records)) 次")
+                HeroStatPill(label: "最近", value: latestShortDate(records))
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(22)
+        .background(theme.gradient, in: RoundedRectangle(cornerRadius: 38))
+        .shadow(color: theme.shadow, radius: 30, y: 18)
+    }
+}
+
+private struct HeroStatPill: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption2.bold())
+                .foregroundStyle(.white.opacity(0.52))
+            Text(value)
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct SafetyChecklistCard: View {
+    let records: [IntimacyRecord]
+
+    var body: some View {
+        let highRisk = records.filter { $0.riskLevel == .high }.count
+        let protected = records.filter { $0.protection != .none }.count
+        let solo = records.contains { $0.type == .solo }
+        Card(title: "今日安全流程") {
+            ChecklistItem(done: safeRate(records) >= 70, title: "保护措施准备好", body: "\(protected)/\(max(records.count, 1)) 条记录使用了保护或低风险方式。")
+            ChecklistItem(done: highRisk == 0, title: "高风险记录归零", body: highRisk == 0 ? "目前没有高风险记录，安全员先不骂人。" : "有 \(highRisk) 条高风险记录，别把侥幸当玄学。")
+            ChecklistItem(done: solo, title: "单人排解也被允许", body: solo ? "你已经记录过单人排解，身体管理很成年人。" : "无伴侣时可以选择安全、清洁、不过度的单人排解。")
+        }
+    }
+}
+
+private struct ChecklistItem: View {
+    let done: Bool
+    let title: String
+    let body: String
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: done ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
+                .font(.headline)
+                .foregroundStyle(done ? Color.green : Color.orange)
+                .frame(width: 40, height: 40)
+                .background((done ? Color.green : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline.bold())
+                Text(body)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(12)
+        .background(Color.grouped, in: RoundedRectangle(cornerRadius: 22))
     }
 }
 
@@ -243,44 +392,286 @@ private struct AddRecordView: View {
 
 private struct CycleView: View {
     @EnvironmentObject private var store: AppStore
+    @State private var periodStart = Self.defaultStart
+    @State private var periodEnd = ""
+    @State private var cycleLength = 28
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                PageHeader(title: "周期雷达", subtitle: "预测不是算命，身体信号优先。")
+                PageHeader(title: "法法日历", subtitle: "该记就记，该停就停。日历只负责诚实。")
                 AdviceCard(advice: store.prediction)
+                CycleForecastCard(prediction: store.prediction, records: store.records)
+                Card(title: "本月火力图") {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
+                        ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) { item in
+                            Text(item)
+                                .font(.caption2.bold())
+                                .foregroundStyle(.secondary)
+                        }
+                        ForEach(calendarDays(records: store.records)) { day in
+                            if let number = day.day {
+                                Text("\(number)")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(day.hasRecord ? .white : day.isToday ? .white : .secondary)
+                                    .frame(width: 34, height: 34)
+                                    .background(day.hasRecord ? Color.rose : day.isToday ? Color.black : Color.grouped, in: Circle())
+                            } else {
+                                Color.clear.frame(width: 34, height: 34)
+                            }
+                        }
+                    }
+                    Text("粉色代表有记录，黑色代表今天。记录多了不是 KPI，身体舒服才算赢。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Card(title: "温馨提示") {
                     Text("经期前后或易孕期附近，系统会更严厉一点。不是扫兴，是保护你和伴侣。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
+                Card(title: "快速修正周期") {
+                    TextField("最近经期开始，例如 2026-05-01", text: $periodStart)
+                        .textInputAutocapitalization(.never)
+                        .font(.subheadline.bold())
+                        .padding()
+                        .background(Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                    TextField("经期结束，可不填", text: $periodEnd)
+                        .textInputAutocapitalization(.never)
+                        .font(.subheadline.bold())
+                        .padding()
+                        .background(Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                    Stepper("平均周期 \(cycleLength) 天", value: $cycleLength, in: 20...45)
+                        .font(.subheadline.bold())
+                    Button("保存周期并刷新预测") {
+                        Task {
+                            await store.saveCycle(periodStart: periodStart, periodEnd: periodEnd.isEmpty ? nil : periodEnd, cycleLength: cycleLength)
+                        }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.black)
+                }
+                Card(title: "日历回放") {
+                    ForEach(store.records.prefix(4)) { record in
+                        HStack(spacing: 12) {
+                            Image(systemName: "flame.fill")
+                                .foregroundStyle(Color.rose)
+                                .frame(width: 42, height: 42)
+                                .background(Color.rose.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(record.occurredAt)
+                                    .font(.subheadline.bold())
+                                Text("\(record.type.title) · \(record.riskLevel.rawValue)")
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Text("\(record.rating)/5")
+                                .font(.caption.bold())
+                                .foregroundStyle(Color.rose)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.rose.opacity(0.1), in: Capsule())
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    if store.records.isEmpty {
+                        Text("暂无记录。日历先空着，身体别空转。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
             .padding()
         }
         .background(Color.grouped)
+        .onAppear {
+            if let cycle = store.cycles.first {
+                periodStart = cycle.periodStart
+                periodEnd = cycle.periodEnd ?? ""
+                cycleLength = cycle.cycleLength
+            }
+        }
     }
+
+    private static var defaultStart: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: Date())
+    }
+}
+
+private struct CycleForecastCard: View {
+    let prediction: HealthAdvice
+    let records: [IntimacyRecord]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("cycle forecast")
+                .font(.caption2.bold())
+                .tracking(3)
+                .foregroundStyle(.white.opacity(0.42))
+            Text("身体天气预报")
+                .font(.title2.bold())
+                .foregroundStyle(.white)
+            Text("预测只能提醒，不能替代身体感受。疼痛、异常出血或明显不适时，优先咨询医生。")
+                .font(.subheadline)
+                .foregroundStyle(.white.opacity(0.68))
+            HStack(spacing: 8) {
+                DarkStatPill(label: "活跃天", value: "\(Set(records.map(\.occurredAt)).count) 天")
+                DarkStatPill(label: "提醒", value: prediction.level == .high ? "严厉" : "温和")
+                DarkStatPill(label: "记录", value: "\(records.count) 条")
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.black, in: RoundedRectangle(cornerRadius: 32))
+        .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
+    }
+}
+
+private struct DarkStatPill: View {
+    let label: String
+    let value: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(label)
+                .font(.caption2.bold())
+                .foregroundStyle(.white.opacity(0.42))
+            Text(value)
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct CalendarDay: Identifiable {
+    let id: String
+    let day: Int?
+    let hasRecord: Bool
+    let isToday: Bool
+}
+
+private func calendarDays(records: [IntimacyRecord]) -> [CalendarDay] {
+    let calendar = Calendar.current
+    let now = Date()
+    let components = calendar.dateComponents([.year, .month], from: now)
+    let start = calendar.date(from: components) ?? now
+    let range = calendar.range(of: .day, in: .month, for: start) ?? 1..<31
+    let firstWeekday = calendar.component(.weekday, from: start) - 1
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM-dd"
+    let recorded = Set(records.map(\.occurredAt))
+    var days: [CalendarDay] = (0..<firstWeekday).map { CalendarDay(id: "blank-\($0)", day: nil, hasRecord: false, isToday: false) }
+    for day in range {
+        let date = calendar.date(byAdding: .day, value: day - 1, to: start) ?? now
+        let key = formatter.string(from: date)
+        days.append(CalendarDay(id: key, day: day, hasRecord: recorded.contains(key), isToday: calendar.isDateInToday(date)))
+    }
+    return days
 }
 
 private struct PartnerView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var phrase = "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感"
+    @State private var phrase = randomPhrase()
+    @State private var inviteInput = ""
 
     var body: some View {
+        let status = store.partnerLink?.status ?? "none"
+        let isLinked = status == "linked"
+        let inviteCode = store.partnerLink?.inviteCode ?? "FALV1"
         ScrollView {
             VStack(spacing: 16) {
                 PageHeader(title: "伴侣绑定", subtitle: "两个人的事，权限也要两个人确认。")
-                Card(title: "共享记录需要逐项授权") {
-                    Text("对方看不到你的全部历史，别让亲密关系变成后台审计。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Button("生成邀请码 FALV1") {}
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(alignment: .top) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("partner link")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white.opacity(0.45))
+                            Text(isLinked ? "已绑定心动搭子" : "等待绑定搭子")
+                                .font(.title2.bold())
+                                .foregroundStyle(.white)
+                            Text(isLinked ? "共享不是偷看，所有记录都要逐项授权。" : "把邀请码交给对方，双方确认后再进入同步模式。")
+                                .font(.subheadline)
+                                .foregroundStyle(.white.opacity(0.68))
+                        }
+                        Spacer()
+                        Image(systemName: "heart.fill")
+                            .font(.title2)
+                            .foregroundStyle(.pink.opacity(0.8))
+                            .frame(width: 54, height: 54)
+                            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("绑定邀请码")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                        HStack {
+                            Text(inviteCode)
+                                .font(.system(size: 36, weight: .black, design: .monospaced))
+                                .tracking(4)
+                            Spacer()
+                            Text(isLinked ? "已确认" : "待确认")
+                                .font(.caption.bold())
+                                .foregroundStyle(Color.rose)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 6)
+                                .background(Color.rose.opacity(0.1), in: Capsule())
+                        }
+                    }
+                    .padding()
+                    .background(.white, in: RoundedRectangle(cornerRadius: 24))
+                    HStack {
+                        stepPill("生成邀请码")
+                        stepPill("对方确认")
+                        stepPill("逐项共享")
+                    }
+                    Button(isLinked ? "解除绑定" : "生成并复制邀请码") {
+                        if !isLinked {
+                            UIPasteboard.general.string = inviteCode
+                        }
+                        Task { await store.togglePartnerLink() }
+                    }
                         .buttonStyle(.borderedProminent)
-                        .tint(.black)
-                        .padding(.top, 8)
+                        .tint(.white)
+                        .foregroundStyle(.black)
+                }
+                .padding()
+                .background(.black, in: RoundedRectangle(cornerRadius: 32))
+                .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
+                Card(title: "共享权限") {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
+                        PermissionTile(active: isLinked, title: "共享最近记录", body: "只同步主动勾选的记录")
+                        PermissionTile(active: false, title: "周期提醒", body: "默认关闭，避免越界关心")
+                        PermissionTile(active: isLinked, title: "留言箱", body: "只允许预设短句")
+                        PermissionTile(active: false, title: "位置通讯录", body: "不采集，也不需要")
+                    }
+                }
+                Card(title: "接受对方邀请") {
+                    TextField("输入邀请码，例如 FALV1", text: $inviteInput)
+                        .textInputAutocapitalization(.characters)
+                        .font(.system(.headline, design: .monospaced))
+                        .padding()
+                        .background(Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                    Button("接受邀请并绑定") {
+                        Task { await store.acceptPartnerInvite(inviteCode: inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.black)
+                    .disabled(inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 Card(title: "给伴侣发一句") {
                     Text(phrase)
                         .font(.headline)
+                    Button("随机换一句") {
+                        phrase = randomPhrase()
+                    }
+                    .buttonStyle(.bordered)
                     Button("发送预设留言") {
                         Task { await store.sendPartnerMessage(phrase: phrase) }
                     }
@@ -305,22 +696,97 @@ private struct PartnerView: View {
         }
         .background(Color.grouped)
     }
+
+    private func stepPill(_ title: String) -> some View {
+        Text(title)
+            .font(.caption2.bold())
+            .foregroundStyle(.white.opacity(0.82))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 10)
+            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+    }
+}
+
+private struct PermissionTile: View {
+    let active: Bool
+    let title: String
+    let body: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Image(systemName: active ? "checkmark.seal.fill" : "lock.fill")
+                .foregroundStyle(active ? Color.rose : .secondary)
+                .frame(width: 34, height: 34)
+                .background(active ? Color.rose.opacity(0.12) : Color.grouped, in: RoundedRectangle(cornerRadius: 14))
+            Text(title)
+                .font(.caption.bold())
+            Text(body)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(active ? Color.rose.opacity(0.08) : Color.grouped, in: RoundedRectangle(cornerRadius: 20))
+    }
 }
 
 private struct SquareView: View {
     @EnvironmentObject private var store: AppStore
-    @State private var phrase = "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感"
+    @State private var phrase = randomPhrase()
 
     var body: some View {
+        let totalResonance = store.posts.reduce(0) { $0 + $1.resonanceCount }
         ScrollView {
             VStack(spacing: 16) {
                 PageHeader(title: "预设广场", subtitle: "不开放自由聊天。成年人发言，也要带刹车。")
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("safe square")
+                        .font(.caption2.bold())
+                        .tracking(3)
+                        .foregroundStyle(.white.opacity(0.42))
+                    Text("今日广场温度")
+                        .font(.title2.bold())
+                        .foregroundStyle(.white)
+                    Text("只允许预设拼句、共鸣、举报和屏蔽。热闹可以，失控不行。")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.68))
+                    HStack(spacing: 8) {
+                        DarkStatPill(label: "留言", value: "\(store.posts.count) 条")
+                        DarkStatPill(label: "共鸣", value: "\(totalResonance)")
+                        DarkStatPill(label: "自由聊", value: "0")
+                    }
+                }
+                .padding()
+                .background(.black, in: RoundedRectangle(cornerRadius: 32))
+                .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
+                Card(title: "摇一摇轻匹配") {
+                    if let match = store.match {
+                        Text("匹配到：\(match.alias)")
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                        Text(match.phrase)
+                            .font(.headline)
+                    } else {
+                        Text("暂时没有匹配。宇宙建议你先喝水。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("摇一下，随机匹配预设句") {
+                        Task { await store.shakeMatch() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.black)
+                }
                 Card(title: "预设拼句") {
                     Text(phrase)
                         .font(.headline)
                     Text("固定模板和分类词库，不开放自由输入。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    Button("随机重组一句") {
+                        phrase = randomPhrase()
+                    }
+                    .buttonStyle(.bordered)
                     Button("发布到匿名广场") {
                         Task { await store.publish(phrase: phrase) }
                     }
@@ -335,6 +801,15 @@ private struct SquareView: View {
                                 .foregroundStyle(.secondary)
                             Text(post.phrase)
                                 .font(.subheadline.bold())
+                            GeometryReader { proxy in
+                                ZStack(alignment: .leading) {
+                                    Capsule().fill(Color.grouped)
+                                    Capsule()
+                                        .fill(LinearGradient(colors: [Color.rose, Color.pink], startPoint: .leading, endPoint: .trailing))
+                                        .frame(width: max(28, min(proxy.size.width, CGFloat(post.resonanceCount) / 2)))
+                                }
+                            }
+                            .frame(height: 8)
                             HStack {
                                 Button("共鸣 \(post.resonanceCount)") {
                                     Task { await store.resonate(post: post) }
@@ -374,6 +849,30 @@ private struct ProfileView: View {
         ScrollView {
             VStack(spacing: 16) {
                 PageHeader(title: "我的", subtitle: "成年人的体面，是知道什么时候该认真。")
+                Card(title: "角色偏好") {
+                    Text("这里决定首页大按钮显示“法了！”还是“被法了！”。想换身份，来设置里换，首页负责少想多记。")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 8) {
+                        Button("我是“法”的一方") {
+                            store.setRole(.initiator)
+                        }
+                        .font(.caption.bold())
+                        .foregroundStyle(store.role != .receiver ? .white : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(store.role != .receiver ? Color.rose : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+
+                        Button("我是“被法”的一方") {
+                            store.setRole(.receiver)
+                        }
+                        .font(.caption.bold())
+                        .foregroundStyle(store.role == .receiver ? .white : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(store.role == .receiver ? Color.violet : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                    }
+                }
                 Card(title: "免登录设备身份") {
                     Text(DeviceIdentity.current)
                         .font(.caption.monospaced())
@@ -532,8 +1031,27 @@ private struct MetricPill: View {
     }
 }
 
+private func safeRate(_ records: [IntimacyRecord]) -> Int {
+    guard !records.isEmpty else { return 0 }
+    let safe = records.filter { $0.protection != .none && $0.riskLevel != .high }.count
+    return Int((Double(safe) / Double(records.count) * 100).rounded())
+}
+
+private func monthCount(_ records: [IntimacyRecord]) -> Int {
+    let formatter = DateFormatter()
+    formatter.dateFormat = "yyyy-MM"
+    let prefix = formatter.string(from: Date())
+    return records.filter { $0.occurredAt.hasPrefix(prefix) }.count
+}
+
+private func latestShortDate(_ records: [IntimacyRecord]) -> String {
+    guard let latest = records.first else { return "暂无" }
+    return String(latest.occurredAt.dropFirst(5))
+}
+
 private extension Color {
     static let rose = Color(red: 244 / 255, green: 63 / 255, blue: 94 / 255)
     static let pink = Color(red: 236 / 255, green: 72 / 255, blue: 153 / 255)
+    static let violet = Color(red: 139 / 255, green: 92 / 255, blue: 246 / 255)
     static let grouped = Color(red: 242 / 255, green: 242 / 255, blue: 247 / 255)
 }

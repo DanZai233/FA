@@ -1,0 +1,8 @@
+node_modules
+dist
+.git
+.DS_Store
+ios/Faleme/Faleme.xcodeproj/project.xcworkspace/xcuserdata
+ios/Faleme/Faleme.xcodeproj/xcuserdata
+server/.DS_Store
+docs/*.tmp

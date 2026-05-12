@@ -1,0 +1,49 @@
+services:
+  web:
+    build:
+      context: .
+      args:
+        VITE_API_BASE_URL: ""
+    ports:
+      - "3000:80"
+    depends_on:
+      api:
+        condition: service_started
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./server
+    environment:
+      FALEME_ADDR: :8080
+      FALEME_ALLOWED_ORIGIN: http://localhost:3000
+      FALEME_MARKETING_URL: http://localhost:3000
+      FALEME_SUPPORT_EMAIL: support@example.com
+      DATABASE_URL: postgres://faleme:faleme@db:5432/faleme?sslmode=disable
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: faleme
+      POSTGRES_PASSWORD: faleme
+      POSTGRES_DB: faleme
+    ports:
+      - "5432:5432"
+    volumes:
+      - faleme-postgres:/var/lib/postgresql/data
+      - ./server/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U faleme -d faleme"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  faleme-postgres:

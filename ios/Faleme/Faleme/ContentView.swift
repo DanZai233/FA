@@ -67,6 +67,8 @@ private struct OfflineModeView: View {
                     .background(theme.gradient, in: Circle())
                     .shadow(color: theme.shadow, radius: 26, y: 18)
                 }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
                 HStack {
                     MetricPill(label: "今日", value: "\(todayCount) 次")
                     MetricPill(label: "本机累计", value: "\(records.count) 条")
@@ -107,7 +109,9 @@ private struct OfflineModeView: View {
                     .tint(.black)
                 }
             }
-            .padding()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
         .background(Color.grouped)
     }
@@ -220,7 +224,8 @@ private struct HomeView: View {
                         Text(store.reminder.body)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
-                        HStack {
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 8) {
                             MetricPill(label: "总记录", value: "\(store.reminder.recordCount) 条")
                             MetricPill(label: "安全率", value: "\(store.reminder.safeRate)%")
                         }
@@ -234,7 +239,9 @@ private struct HomeView: View {
                         }
                     }
                 }
-                .padding()
+                .frame(maxWidth: .infinity)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
             }
             .background(Color.grouped)
             .sheet(isPresented: $isAdding) {
@@ -250,43 +257,60 @@ private struct HomeHeroView: View {
     var onTap: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 22) {
-            VStack(alignment: .leading, spacing: 10) {
+        VStack(spacing: 22) {
+            VStack(spacing: 10) {
                 Text("adult wellness")
                     .font(.caption2.bold())
                     .tracking(3)
                     .foregroundStyle(.white.opacity(0.55))
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
                 Text("法了么")
-                    .font(.system(size: 48, weight: .black))
+                    .font(.system(size: 44, weight: .black))
                     .foregroundStyle(.white)
+                    .minimumScaleFactor(0.85)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity)
+                    .multilineTextAlignment(.center)
                 Text("嘴上很荒唐，身体很诚实，安全要更诚实。")
                     .font(.subheadline.bold())
                     .foregroundStyle(.white.opacity(0.78))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+            .frame(maxWidth: .infinity)
+
             Button(action: onTap) {
                 VStack(spacing: 10) {
                     Image(systemName: theme.icon)
-                        .font(.system(size: 64))
+                        .font(.system(size: 56))
                     Text(theme.buttonTitle)
-                        .font(.system(size: 38, weight: .black))
+                        .font(.system(size: 34, weight: .black))
                     Text(theme.subtitle)
                         .font(.caption.bold())
                         .foregroundStyle(.white.opacity(0.76))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .foregroundStyle(.white)
-                .frame(width: 220, height: 220)
+                .frame(width: 208, height: 208)
                 .background(.white.opacity(0.18), in: Circle())
                 .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
                 .shadow(color: .black.opacity(0.18), radius: 24, y: 16)
             }
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity)
+
             HStack(spacing: 8) {
                 HeroStatPill(label: "保护率", value: "\(safeRate(records))%")
                 HeroStatPill(label: "本月", value: "\(monthCount(records)) 次")
                 HeroStatPill(label: "最近", value: latestShortDate(records))
             }
+            .frame(maxWidth: .infinity)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(22)
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 22)
         .background(theme.gradient, in: RoundedRectangle(cornerRadius: 38))
         .shadow(color: theme.shadow, radius: 30, y: 18)
     }
@@ -297,16 +321,23 @@ private struct HeroStatPill: View {
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(spacing: 4) {
             Text(label)
                 .font(.caption2.bold())
                 .foregroundStyle(.white.opacity(0.52))
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
             Text(value)
                 .font(.caption.bold())
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .multilineTextAlignment(.center)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
+        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 6)
         .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
     }
 }
@@ -319,9 +350,9 @@ private struct SafetyChecklistCard: View {
         let protected = records.filter { $0.protection != .none }.count
         let solo = records.contains { $0.type == .solo }
         Card(title: "今日安全流程") {
-            ChecklistItem(done: safeRate(records) >= 70, title: "保护措施准备好", body: "\(protected)/\(max(records.count, 1)) 条记录使用了保护或低风险方式。")
-            ChecklistItem(done: highRisk == 0, title: "高风险记录归零", body: highRisk == 0 ? "目前没有高风险记录，安全员先不骂人。" : "有 \(highRisk) 条高风险记录，别把侥幸当玄学。")
-            ChecklistItem(done: solo, title: "单人排解也被允许", body: solo ? "你已经记录过单人排解，身体管理很成年人。" : "无伴侣时可以选择安全、清洁、不过度的单人排解。")
+            ChecklistItem(done: safeRate(records) >= 70, title: "保护措施准备好", detail: "\(protected)/\(max(records.count, 1)) 条记录使用了保护或低风险方式。")
+            ChecklistItem(done: highRisk == 0, title: "高风险记录归零", detail: highRisk == 0 ? "目前没有高风险记录，安全员先不骂人。" : "有 \(highRisk) 条高风险记录，别把侥幸当玄学。")
+            ChecklistItem(done: solo, title: "单人排解也被允许", detail: solo ? "你已经记录过单人排解，身体管理很成年人。" : "无伴侣时可以选择安全、清洁、不过度的单人排解。")
         }
     }
 }
@@ -329,7 +360,7 @@ private struct SafetyChecklistCard: View {
 private struct ChecklistItem: View {
     let done: Bool
     let title: String
-    let body: String
+    let detail: String
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -341,7 +372,7 @@ private struct ChecklistItem: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.subheadline.bold())
-                Text(body)
+                Text(detail)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -403,21 +434,31 @@ private struct CycleView: View {
                 AdviceCard(advice: store.prediction)
                 CycleForecastCard(prediction: store.prediction, records: store.records)
                 Card(title: "本月火力图") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 7), spacing: 8) {
+                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 8), spacing: 4), count: 7), spacing: 4) {
                         ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) { item in
                             Text(item)
-                                .font(.caption2.bold())
+                                .font(.system(size: 10, weight: .heavy))
                                 .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .multilineTextAlignment(.center)
                         }
                         ForEach(calendarDays(records: store.records)) { day in
                             if let number = day.day {
-                                Text("\(number)")
-                                    .font(.caption.bold())
-                                    .foregroundStyle(day.hasRecord ? .white : day.isToday ? .white : .secondary)
-                                    .frame(width: 34, height: 34)
-                                    .background(day.hasRecord ? Color.rose : day.isToday ? Color.black : Color.grouped, in: Circle())
+                                ZStack {
+                                    Circle()
+                                        .fill(day.hasRecord ? Color.rose : day.isToday ? Color.black : Color.grouped)
+                                    Text("\(number)")
+                                        .font(.system(size: 11, weight: .heavy))
+                                        .foregroundStyle(day.hasRecord || day.isToday ? .white : .secondary)
+                                        .minimumScaleFactor(0.5)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .aspectRatio(1, contentMode: .fit)
                             } else {
-                                Color.clear.frame(width: 34, height: 34)
+                                Color.clear
+                                    .frame(maxWidth: .infinity)
+                                    .aspectRatio(1, contentMode: .fit)
                             }
                         }
                     }
@@ -482,7 +523,9 @@ private struct CycleView: View {
                     }
                 }
             }
-            .padding()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
         .background(Color.grouped)
         .onAppear {
@@ -517,7 +560,8 @@ private struct CycleForecastCard: View {
             Text("预测只能提醒，不能替代身体感受。疼痛、异常出血或明显不适时，优先咨询医生。")
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.68))
-            HStack(spacing: 8) {
+                .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
                 DarkStatPill(label: "活跃天", value: "\(Set(records.map(\.occurredAt)).count) 天")
                 DarkStatPill(label: "提醒", value: prediction.level == .high ? "严厉" : "温和")
                 DarkStatPill(label: "记录", value: "\(records.count) 条")
@@ -539,12 +583,17 @@ private struct DarkStatPill: View {
             Text(label)
                 .font(.caption2.bold())
                 .foregroundStyle(.white.opacity(0.42))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Text(value)
                 .font(.caption.bold())
                 .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(10)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 8)
         .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
     }
 }
@@ -588,7 +637,7 @@ private struct PartnerView: View {
             VStack(spacing: 16) {
                 PageHeader(title: "伴侣绑定", subtitle: "两个人的事，权限也要两个人确认。")
                 VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .top) {
+                    HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("partner link")
                                 .font(.caption.bold())
@@ -596,37 +645,42 @@ private struct PartnerView: View {
                             Text(isLinked ? "已绑定心动搭子" : "等待绑定搭子")
                                 .font(.title2.bold())
                                 .foregroundStyle(.white)
+                                .fixedSize(horizontal: false, vertical: true)
                             Text(isLinked ? "共享不是偷看，所有记录都要逐项授权。" : "把邀请码交给对方，双方确认后再进入同步模式。")
                                 .font(.subheadline)
                                 .foregroundStyle(.white.opacity(0.68))
+                                .fixedSize(horizontal: false, vertical: true)
                         }
-                        Spacer()
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         Image(systemName: "heart.fill")
                             .font(.title2)
                             .foregroundStyle(.pink.opacity(0.8))
-                            .frame(width: 54, height: 54)
+                            .frame(width: 48, height: 48)
                             .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         Text("绑定邀请码")
                             .font(.caption.bold())
                             .foregroundStyle(.secondary)
-                        HStack {
+                        HStack(alignment: .center, spacing: 8) {
                             Text(inviteCode)
-                                .font(.system(size: 36, weight: .black, design: .monospaced))
-                                .tracking(4)
-                            Spacer()
+                                .font(.system(size: 26, weight: .black, design: .monospaced))
+                                .tracking(2)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.45)
+                                .layoutPriority(1)
                             Text(isLinked ? "已确认" : "待确认")
                                 .font(.caption.bold())
                                 .foregroundStyle(Color.rose)
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
                                 .background(Color.rose.opacity(0.1), in: Capsule())
+                                .fixedSize()
                         }
                     }
                     .padding()
                     .background(.white, in: RoundedRectangle(cornerRadius: 24))
-                    HStack {
+                    HStack(spacing: 6) {
                         stepPill("生成邀请码")
                         stepPill("对方确认")
                         stepPill("逐项共享")
@@ -637,19 +691,19 @@ private struct PartnerView: View {
                         }
                         Task { await store.togglePartnerLink() }
                     }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.white)
-                        .foregroundStyle(.black)
+                    .buttonStyle(.borderedProminent)
+                    .tint(.white)
+                    .foregroundStyle(.black)
                 }
                 .padding()
                 .background(.black, in: RoundedRectangle(cornerRadius: 32))
                 .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
                 Card(title: "共享权限") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
-                        PermissionTile(active: isLinked, title: "共享最近记录", body: "只同步主动勾选的记录")
-                        PermissionTile(active: false, title: "周期提醒", body: "默认关闭，避免越界关心")
-                        PermissionTile(active: isLinked, title: "留言箱", body: "只允许预设短句")
-                        PermissionTile(active: false, title: "位置通讯录", body: "不采集，也不需要")
+                        PermissionTile(active: isLinked, title: "共享最近记录", detail: "只同步主动勾选的记录")
+                        PermissionTile(active: false, title: "周期提醒", detail: "默认关闭，避免越界关心")
+                        PermissionTile(active: isLinked, title: "留言箱", detail: "只允许预设短句")
+                        PermissionTile(active: false, title: "位置通讯录", detail: "不采集，也不需要")
                     }
                 }
                 Card(title: "接受对方邀请") {
@@ -668,6 +722,7 @@ private struct PartnerView: View {
                 Card(title: "给伴侣发一句") {
                     Text(phrase)
                         .font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
                     Button("随机换一句") {
                         phrase = randomPhrase()
                     }
@@ -686,23 +741,30 @@ private struct PartnerView: View {
                                 .foregroundStyle(.secondary)
                             Text(message.phrase)
                                 .font(.subheadline.bold())
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 6)
                     }
                 }
             }
-            .padding()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
         .background(Color.grouped)
     }
 
     private func stepPill(_ title: String) -> some View {
         Text(title)
-            .font(.caption2.bold())
+            .font(.system(size: 10, weight: .heavy))
             .foregroundStyle(.white.opacity(0.82))
+            .multilineTextAlignment(.center)
+            .lineLimit(2)
+            .minimumScaleFactor(0.75)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
+            .padding(.horizontal, 4)
             .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
     }
 }
@@ -710,7 +772,7 @@ private struct PartnerView: View {
 private struct PermissionTile: View {
     let active: Bool
     let title: String
-    let body: String
+    let detail: String
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -720,13 +782,28 @@ private struct PermissionTile: View {
                 .background(active ? Color.rose.opacity(0.12) : Color.grouped, in: RoundedRectangle(cornerRadius: 14))
             Text(title)
                 .font(.caption.bold())
-            Text(body)
+            Text(detail)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
+                .lineLimit(4)
+                .minimumScaleFactor(0.85)
+                .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
         .background(active ? Color.rose.opacity(0.08) : Color.grouped, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+private struct ResonanceStrip: View {
+    let count: Int
+
+    var body: some View {
+        let total = 120.0
+        let value = min(Double(count), total)
+        ProgressView(value: value, total: total)
+            .tint(Color.rose)
+            .scaleEffect(x: 1, y: 1.35, anchor: .center)
     }
 }
 
@@ -750,7 +827,8 @@ private struct SquareView: View {
                     Text("只允许预设拼句、共鸣、举报和屏蔽。热闹可以，失控不行。")
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.68))
-                    HStack(spacing: 8) {
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
                         DarkStatPill(label: "留言", value: "\(store.posts.count) 条")
                         DarkStatPill(label: "共鸣", value: "\(totalResonance)")
                         DarkStatPill(label: "自由聊", value: "0")
@@ -766,6 +844,7 @@ private struct SquareView: View {
                             .foregroundStyle(.secondary)
                         Text(match.phrase)
                             .font(.headline)
+                            .fixedSize(horizontal: false, vertical: true)
                     } else {
                         Text("暂时没有匹配。宇宙建议你先喝水。")
                             .font(.subheadline)
@@ -780,6 +859,7 @@ private struct SquareView: View {
                 Card(title: "预设拼句") {
                     Text(phrase)
                         .font(.headline)
+                        .fixedSize(horizontal: false, vertical: true)
                     Text("固定模板和分类词库，不开放自由输入。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -801,33 +881,30 @@ private struct SquareView: View {
                                 .foregroundStyle(.secondary)
                             Text(post.phrase)
                                 .font(.subheadline.bold())
-                            GeometryReader { proxy in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(Color.grouped)
-                                    Capsule()
-                                        .fill(LinearGradient(colors: [Color.rose, Color.pink], startPoint: .leading, endPoint: .trailing))
-                                        .frame(width: max(28, min(proxy.size.width, CGFloat(post.resonanceCount) / 2)))
+                                .fixedSize(horizontal: false, vertical: true)
+                            ResonanceStrip(count: post.resonanceCount)
+                            VStack(alignment: .leading, spacing: 10) {
+                                HStack(spacing: 12) {
+                                    Button("共鸣 \(post.resonanceCount)") {
+                                        Task { await store.resonate(post: post) }
+                                    }
+                                    .font(.caption.bold())
+                                    .foregroundStyle(Color.rose)
+                                    Spacer(minLength: 0)
                                 }
-                            }
-                            .frame(height: 8)
-                            HStack {
-                                Button("共鸣 \(post.resonanceCount)") {
-                                    Task { await store.resonate(post: post) }
+                                HStack(spacing: 12) {
+                                    Button(post.reported == true ? "已举报" : "举报") {
+                                        Task { await store.report(post: post) }
+                                    }
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.secondary)
+                                    Button("屏蔽") {
+                                        Task { await store.block(post: post) }
+                                    }
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.primary)
+                                    Spacer(minLength: 0)
                                 }
-                                .font(.caption.bold())
-                                .foregroundStyle(Color.rose)
-
-                                Button(post.reported == true ? "已举报" : "举报") {
-                                    Task { await store.report(post: post) }
-                                }
-                                .font(.caption.bold())
-                                .foregroundStyle(.secondary)
-
-                                Button("屏蔽") {
-                                    Task { await store.block(post: post) }
-                                }
-                                .font(.caption.bold())
-                                .foregroundStyle(.primary)
                             }
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -835,7 +912,9 @@ private struct SquareView: View {
                     }
                 }
             }
-            .padding()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
         .background(Color.grouped)
     }
@@ -859,6 +938,9 @@ private struct ProfileView: View {
                         }
                         .font(.caption.bold())
                         .foregroundStyle(store.role != .receiver ? .white : .secondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.82)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(store.role != .receiver ? Color.rose : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
@@ -868,6 +950,9 @@ private struct ProfileView: View {
                         }
                         .font(.caption.bold())
                         .foregroundStyle(store.role == .receiver ? .white : .secondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.82)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                         .background(store.role == .receiver ? Color.violet : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
@@ -893,6 +978,7 @@ private struct ProfileView: View {
                             Text(card.body)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.vertical, 8)
@@ -902,18 +988,20 @@ private struct ProfileView: View {
                     Text(store.privacyMessage)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
-                    HStack {
+                    VStack(spacing: 10) {
                         Button("导出数据") {
                             Task { await store.exportData() }
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.black)
+                        .frame(maxWidth: .infinity)
 
                         Button("删除账号") {
                             Task { await store.deleteAccount() }
                         }
                         .buttonStyle(.bordered)
                         .tint(Color.rose)
+                        .frame(maxWidth: .infinity)
                     }
                 }
                 Card(title: "完全离线模式") {
@@ -927,7 +1015,9 @@ private struct ProfileView: View {
                     .tint(.black)
                 }
             }
-            .padding()
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
         }
         .background(Color.grouped)
     }
@@ -943,6 +1033,7 @@ private struct AdviceCard: View {
             Text(advice.body)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
             Text(advice.action)
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
@@ -990,24 +1081,33 @@ private struct RecordRow: View {
     var onDelete: () -> Void
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading) {
+        HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(record.occurredAt)
                     .font(.subheadline.bold())
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.85)
                 Text("\(record.type.title) · \(record.protection.title)")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer()
-            Text("\(record.rating)/5")
-                .font(.caption.bold())
-                .foregroundStyle(Color.rose)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.rose.opacity(0.1), in: Capsule())
-            Button("删除", action: onDelete)
-                .font(.caption.bold())
-                .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            VStack(alignment: .trailing, spacing: 8) {
+                Text("\(record.rating)/5")
+                    .font(.caption.bold())
+                    .foregroundStyle(Color.rose)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(Color.rose.opacity(0.1), in: Capsule())
+                    .lineLimit(1)
+                Button("删除", action: onDelete)
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+            }
+            .fixedSize(horizontal: true, vertical: false)
         }
         .padding(.vertical, 6)
     }
@@ -1018,12 +1118,16 @@ private struct MetricPill: View {
     let value: String
 
     var body: some View {
-        VStack(alignment: .leading) {
+        VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.85)
             Text(value)
                 .font(.headline.bold())
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()

@@ -142,7 +142,8 @@ func (s *MemoryStore) UpdateUser(userID string, req UpdateProfileRequest) (User,
 func (s *MemoryStore) Records(userID string) []IntimacyRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]IntimacyRecord(nil), s.records[userID]...)
+	// Use non-nil base slice so JSON encodes [] not null (empty client arrays).
+	return append([]IntimacyRecord{}, s.records[userID]...)
 }
 
 func (s *MemoryStore) AddRecord(userID string, record IntimacyRecord) IntimacyRecord {
@@ -194,7 +195,7 @@ func (s *MemoryStore) DeleteRecord(userID, recordID string) error {
 func (s *MemoryStore) Cycles(userID string) []CycleRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]CycleRecord(nil), s.cycles[userID]...)
+	return append([]CycleRecord{}, s.cycles[userID]...)
 }
 
 func (s *MemoryStore) AddCycle(userID string, cycle CycleRecord) CycleRecord {
@@ -255,7 +256,7 @@ func (s *MemoryStore) AcceptInvite(userID, inviteCode string) PartnerLink {
 func (s *MemoryStore) PartnerMessages(userID string) []PartnerMessage {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]PartnerMessage(nil), s.messages[userID]...)
+	return append([]PartnerMessage{}, s.messages[userID]...)
 }
 
 func (s *MemoryStore) AddPartnerMessage(userID, phrase, scene string) PartnerMessage {
@@ -353,9 +354,9 @@ func (s *MemoryStore) Export(user User) DataExport {
 	return DataExport{
 		User:     user,
 		Partner:  link,
-		Messages: append([]PartnerMessage(nil), s.messages[user.ID]...),
-		Records:  append([]IntimacyRecord(nil), s.records[user.ID]...),
-		Cycles:   append([]CycleRecord(nil), s.cycles[user.ID]...),
+		Messages: append([]PartnerMessage{}, s.messages[user.ID]...),
+		Records:  append([]IntimacyRecord{}, s.records[user.ID]...),
+		Cycles:   append([]CycleRecord{}, s.cycles[user.ID]...),
 		Posts:    posts,
 		Reports:  reports,
 		Exported: time.Now(),

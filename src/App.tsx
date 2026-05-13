@@ -250,13 +250,14 @@ function MobileApp() {
           ...nextProfile,
           partnerStatus: prev.partnerStatus,
         }));
-        setRecords(nextRecords);
-        if (nextCycles[0]) {
-          setCycle(nextCycles[0]);
+        setRecords(Array.isArray(nextRecords) ? nextRecords : []);
+        const cycles = Array.isArray(nextCycles) ? nextCycles : [];
+        if (cycles[0]) {
+          setCycle(cycles[0]);
         }
-        setPosts(nextPosts);
+        setPosts(Array.isArray(nextPosts) ? nextPosts : []);
         setRemotePrediction(nextPrediction);
-        setPartnerMessages(nextMessages);
+        setPartnerMessages(Array.isArray(nextMessages) ? nextMessages : []);
         setSummary(nextSummary);
         setApiStatus('connected');
       })
@@ -530,7 +531,7 @@ function HomeView({
         </header>
         <button
           onClick={onAddRecord}
-          className="relative mt-8 flex h-56 w-56 flex-col items-center justify-center rounded-full border border-white/30 bg-white/18 text-white shadow-2xl shadow-black/20 backdrop-blur-xl transition active:scale-95"
+          className="relative mx-auto mt-8 flex h-56 w-56 flex-col items-center justify-center rounded-full border border-white/30 bg-white/18 text-white shadow-2xl shadow-black/20 backdrop-blur-xl transition active:scale-95"
         >
           {theme.isReceiver ? <Heart size={68} strokeWidth={1.5} /> : <Flame size={68} strokeWidth={1.5} />}
           <span className="mt-2 text-4xl font-black tracking-wider">{theme.label}</span>
@@ -805,6 +806,7 @@ function PartnerView({
   onAcceptInvite: (inviteCode: string) => void;
 }) {
   const linked = status === 'linked';
+  const messageList = messages ?? [];
   const [inviteCode, setInviteCode] = useState('');
   const [parts, setParts] = useState<Record<PhraseSlot, string>>(() => randomPhraseParts());
   const phrase = `${parts.tone} / ${parts.subject} / ${parts.action} / ${parts.ending}`;
@@ -897,15 +899,15 @@ function PartnerView({
         </div>
       </Card>
 
-      <Card title="伴侣留言箱" action={`${messages.length} 条`}>
+      <Card title="伴侣留言箱" action={`${messageList.length} 条`}>
         <div className="space-y-3">
-          {messages.map((message) => (
+          {messageList.map((message) => (
             <div key={message.id} className="rounded-3xl bg-slate-50 p-4">
               <p className="text-xs font-bold text-slate-400">{message.createdAt}</p>
               <p className="mt-2 text-sm font-black leading-6 text-slate-800">{message.phrase}</p>
             </div>
           ))}
-          {messages.length === 0 && <p className="py-5 text-center text-sm text-slate-400">还没有留言。沉默可以，但别全靠猜。</p>}
+          {messageList.length === 0 && <p className="py-5 text-center text-sm text-slate-400">还没有留言。沉默可以，但别全靠猜。</p>}
         </div>
       </Card>
     </section>
@@ -1532,6 +1534,7 @@ function OptionGroup<T extends string>({
 }
 
 function PhraseSelect({label, value, values, onChange}: {label: string; value: string; values: string[]; onChange: (value: string) => void}) {
+  const options = values ?? [];
   return (
     <label className="block">
       <span className="mb-2 block text-xs font-black text-slate-400">{label}</span>
@@ -1540,7 +1543,7 @@ function PhraseSelect({label, value, values, onChange}: {label: string; value: s
         onChange={(event) => onChange(event.target.value)}
         className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-rose-300"
       >
-        {values.map((item) => (
+        {options.map((item) => (
           <option key={item} value={item}>
             {item}
           </option>

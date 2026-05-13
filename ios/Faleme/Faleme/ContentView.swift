@@ -226,7 +226,7 @@ private struct HomeView: View {
         let theme = RoleTheme(role: store.role)
         NavigationStack {
             ScrollView {
-                VStack(spacing: 20) {
+                VStack(spacing: 16) {
                     if ComfortCopy.enabled {
                         ComfortBanner(text: ComfortCopy.line())
                     }
@@ -235,17 +235,7 @@ private struct HomeView: View {
                     }
 
                     SafetyChecklistCard(records: store.records)
-                    AdviceCard(advice: store.prediction)
-                    Card(title: store.reminder.title) {
-                        Text(store.reminder.body)
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        HStack(spacing: 8) {
-                            MetricPill(label: "总记录", value: "\(store.reminder.recordCount) 条")
-                            MetricPill(label: "安全率", value: "\(store.reminder.safeRate)%")
-                        }
-                    }
+                    HomeAdviceReminderCard(prediction: store.prediction, reminder: store.reminder)
 
                     Card(title: "最近记录") {
                         ForEach(store.records) { record in
@@ -266,6 +256,8 @@ private struct HomeView: View {
             .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .sheet(isPresented: $isAdding) {
                 AddRecordView()
+                    .presentationDragIndicator(.visible)
+                    .presentationCornerRadius(34)
             }
         }
     }
@@ -277,26 +269,25 @@ private struct HomeHeroView: View {
     var onTap: () -> Void
 
     var body: some View {
-        VStack(spacing: 22) {
-            VStack(spacing: 10) {
+        VStack(spacing: 16) {
+            VStack(spacing: 6) {
                 Text("adult wellness")
                     .font(.caption2.bold())
                     .tracking(3)
-                    .foregroundStyle(.white.opacity(0.55))
+                    .foregroundStyle(.white.opacity(0.52))
                     .frame(maxWidth: .infinity)
                     .multilineTextAlignment(.center)
                 Text("法了么")
-                    .font(.system(size: 44, weight: .black))
+                    .font(.system(size: 40, weight: .black))
                     .foregroundStyle(.white)
                     .minimumScaleFactor(0.85)
                     .lineLimit(1)
                     .frame(maxWidth: .infinity)
                     .multilineTextAlignment(.center)
-                Text("嘴上很荒唐，身体很诚实，安全要更诚实。")
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.white.opacity(0.78))
+                Text("身体诚实，安全更要诚实。")
+                    .font(.caption.bold())
+                    .foregroundStyle(.white.opacity(0.74))
                     .multilineTextAlignment(.center)
-                    .fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: .infinity)
 
@@ -304,27 +295,29 @@ private struct HomeHeroView: View {
                 FalemeHaptics.light()
                 onTap()
             }) {
-                VStack(spacing: 10) {
+                VStack(spacing: 8) {
                     Image(systemName: theme.icon)
-                        .font(.system(size: 56))
+                        .font(.system(size: 48))
+                        .symbolRenderingMode(.hierarchical)
                     Text(theme.buttonTitle)
-                        .font(.system(size: 34, weight: .black))
+                        .font(.system(size: 30, weight: .black))
                     Text(theme.subtitle)
-                        .font(.caption.bold())
-                        .foregroundStyle(.white.opacity(0.76))
+                        .font(.caption2.bold())
+                        .foregroundStyle(.white.opacity(0.72))
                         .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.88)
                 }
                 .foregroundStyle(.white)
-                .frame(width: 208, height: 208)
-                .background(.white.opacity(0.18), in: Circle())
-                .overlay(Circle().stroke(.white.opacity(0.28), lineWidth: 1))
-                .shadow(color: .black.opacity(0.18), radius: 24, y: 16)
+                .frame(width: 184, height: 184)
+                .background(.white.opacity(0.17), in: Circle())
+                .overlay(Circle().stroke(.white.opacity(0.26), lineWidth: 1))
+                .shadow(color: .black.opacity(0.16), radius: 20, y: 14)
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity)
 
-            HStack(spacing: 8) {
+            HStack(spacing: 6) {
                 HeroStatPill(label: "保护率", value: "\(safeRate(records))%")
                 HeroStatPill(label: "本月", value: "\(monthCount(records)) 次")
                 HeroStatPill(label: "最近", value: latestShortDate(records))
@@ -332,21 +325,21 @@ private struct HomeHeroView: View {
             .frame(maxWidth: .infinity)
         }
         .frame(maxWidth: .infinity)
-        .padding(.horizontal, 18)
-        .padding(.vertical, 22)
-        .background(theme.gradient, in: RoundedRectangle(cornerRadius: 38, style: .continuous))
+        .padding(.horizontal, 16)
+        .padding(.vertical, 18)
+        .background(theme.gradient, in: RoundedRectangle(cornerRadius: 34, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 38, style: .continuous)
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
                 .strokeBorder(
                     LinearGradient(
-                        colors: [.white.opacity(0.38), .white.opacity(0.12)],
+                        colors: [.white.opacity(0.36), .white.opacity(0.10)],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     ),
                     lineWidth: 1,
                 )
         )
-        .shadow(color: theme.shadow, radius: 30, y: 18)
+        .shadow(color: theme.shadow, radius: 26, y: 16)
     }
 }
 
@@ -370,12 +363,12 @@ private struct HeroStatPill: View {
         }
         .frame(maxWidth: .infinity)
         .multilineTextAlignment(.center)
-        .padding(.vertical, 10)
-        .padding(.horizontal, 6)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .padding(.vertical, 8)
+        .padding(.horizontal, 4)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Color.white.opacity(0.28), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.26), lineWidth: 1)
         )
     }
 }
@@ -387,7 +380,7 @@ private struct SafetyChecklistCard: View {
         let highRisk = records.filter { $0.riskLevel == .high }.count
         let protected = records.filter { $0.protection != .none }.count
         let solo = records.contains { $0.type == .solo }
-        Card(title: "今日安全流程") {
+        Card(title: "安全三件事") {
             ChecklistItem(done: safeRate(records) >= 70, title: "保护措施准备好", detail: "\(protected)/\(max(records.count, 1)) 条记录使用了保护或低风险方式。")
             ChecklistItem(done: highRisk == 0, title: "高风险记录归零", detail: highRisk == 0 ? "目前没有高风险记录，安全员先不骂人。" : "有 \(highRisk) 条高风险记录，别把侥幸当玄学。")
             ChecklistItem(done: solo, title: "单人排解也被允许", detail: solo ? "你已经记录过单人排解，身体管理很成年人。" : "无伴侣时可以选择安全、清洁、不过度的单人排解。")
@@ -402,24 +395,25 @@ private struct ChecklistItem: View {
     @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: done ? "checkmark.seal.fill" : "exclamationmark.triangle.fill")
-                .font(.headline)
+                .font(.subheadline.weight(.semibold))
                 .foregroundStyle(done ? Color.green : Color.orange)
-                .frame(width: 40, height: 40)
-                .background((done ? Color.green : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 16))
-            VStack(alignment: .leading, spacing: 4) {
+                .frame(width: 34, height: 34)
+                .background((done ? Color.green : Color.orange).opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+            VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(.subheadline.bold())
+                    .font(.caption.bold())
                 Text(detail)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
-        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .padding(.horizontal, 10)
+        .padding(.vertical, 9)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .strokeBorder(
                     Color.white.opacity(scheme == .dark ? 0.14 : 0.42),
                     lineWidth: 1,
@@ -428,44 +422,196 @@ private struct ChecklistItem: View {
     }
 }
 
+private struct HomeAdviceReminderCard: View {
+    let prediction: HealthAdvice
+    let reminder: ReminderSummary
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("今日提示")
+                .font(.headline.bold())
+            VStack(alignment: .leading, spacing: 6) {
+                Text(prediction.title)
+                    .font(.subheadline.bold())
+                Text(prediction.body)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(prediction.action)
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(.thinMaterial)
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill((prediction.level == .high ? Color.red : Color.orange).opacity(scheme == .dark ? 0.12 : 0.10))
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .strokeBorder(
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(scheme == .dark ? 0.18 : 0.45),
+                                Color.white.opacity(0.05),
+                            ],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ),
+                        lineWidth: 1,
+                    )
+            )
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(reminder.title)
+                    .font(.caption.bold())
+                    .foregroundStyle(.secondary)
+                Text(reminder.body)
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 8) {
+                    MetricPill(label: "总记录", value: "\(reminder.recordCount) 条")
+                    MetricPill(label: "安全率", value: "\(reminder.safeRate)%")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding()
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: FalemeShape.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: FalemeShape.card, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(scheme == .dark ? 0.20 : 0.48),
+                            Color.white.opacity(0.05),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1,
+                )
+        )
+        .shadow(color: .black.opacity(scheme == .dark ? 0.32 : 0.06), radius: 22, y: 10)
+    }
+}
+
 private struct AddRecordView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var scheme
     @State private var type: IntimacyType = .penetrative
     @State private var protection: ProtectionMethod = .condom
     @State private var rating = 4
     @State private var consentChecked = true
     @State private var sharedWithPartner = false
 
+    private let choiceColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+
     var body: some View {
         NavigationStack {
-            Form {
-                Picker("亲密类型", selection: $type) {
-                    ForEach(IntimacyType.allCases, id: \.self) { item in
-                        Text(item.title).tag(item)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("快速记下这一笔")
+                            .font(.title3.bold())
+                        Text("选对类型与保护方式，火苗评分点一点就好。")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    recordFieldCard(title: "亲密类型") {
+                        LazyVGrid(columns: choiceColumns, spacing: 10) {
+                            ForEach(IntimacyType.allCases, id: \.self) { item in
+                                RecordChoiceChip(title: item.title, selected: type == item) {
+                                    if type != item {
+                                        FalemeHaptics.light()
+                                        type = item
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    recordFieldCard(title: "保护方式") {
+                        LazyVGrid(columns: choiceColumns, spacing: 10) {
+                            ForEach(ProtectionMethod.allCases, id: \.self) { item in
+                                RecordChoiceChip(title: item.title, selected: protection == item) {
+                                    if protection != item {
+                                        FalemeHaptics.light()
+                                        protection = item
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    recordFieldCard(title: "主观体感") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text(flameCaption)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            FlameRatingRow(rating: $rating)
+                        }
+                    }
+
+                    recordFieldCard(title: "体验与安全") {
+                        VStack(alignment: .leading, spacing: 14) {
+                            Toggle(isOn: $consentChecked) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("双方明确同意")
+                                        .font(.subheadline.bold())
+                                    Text("清醒、自愿、可随时撤回")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .tint(Color.rose)
+
+                            Toggle(isOn: $sharedWithPartner) {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("共享给已绑定伴侣")
+                                        .font(.subheadline.bold())
+                                    Text("仅在账户已绑定时同步对方可见摘要")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .tint(Color.rose)
+
+                            Text("不舒服随时停止；不同意或未清醒时不要记录为已同意。")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
                     }
                 }
-                Picker("保护方式", selection: $protection) {
-                    ForEach(ProtectionMethod.allCases, id: \.self) { item in
-                        Text(item.title).tag(item)
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
+                .padding(.bottom, 28)
+            }
+            .scrollIndicators(.hidden)
+            .navigationTitle("记录这次亲密")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
                     }
-                }
-                Section("体验与安全") {
-                    Stepper(value: $rating, in: 1...5) {
-                        Text("主观评分：\(rating) / 5")
-                    }
-                    Toggle("双方明确同意", isOn: $consentChecked)
-                    Toggle("分享给已绑定伴侣", isOn: $sharedWithPartner)
-                    Text("不舒服随时停止；不同意或未清醒时不要记录为已同意。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
                 }
             }
-            .scrollContentBackground(.hidden)
-            .navigationTitle("记录这次亲密")
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") {
+            .safeAreaInset(edge: .bottom) {
+                VStack(spacing: 0) {
+                    Divider().opacity(0.35)
+                    Button {
                         Task {
                             await store.addRecord(
                                 type: type,
@@ -477,12 +623,135 @@ private struct AddRecordView: View {
                             FalemeHaptics.success()
                             dismiss()
                         }
+                    } label: {
+                        Text("保存记录")
+                            .font(.headline.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.rose)
                     .disabled(!consentChecked)
+                    .opacity(consentChecked ? 1 : 0.45)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 12)
+                    .background(.ultraThinMaterial)
                 }
             }
         }
         .background(GlassRootBackground())
+    }
+
+    private var flameCaption: String {
+        switch rating {
+        case 1: return "今天有点勉强 · \(rating) / 5"
+        case 2: return "还行但差点意思 · \(rating) / 5"
+        case 3: return "平稳发挥 · \(rating) / 5"
+        case 4: return "挺到位 · \(rating) / 5"
+        default: return "火力全开 · \(rating) / 5"
+        }
+    }
+
+    private func recordFieldCard(title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(title)
+                .font(.caption.bold())
+                .foregroundStyle(.secondary)
+                .textCase(.uppercase)
+                .tracking(0.6)
+            content()
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: FalemeShape.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: FalemeShape.card, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(scheme == .dark ? 0.22 : 0.42),
+                            Color.white.opacity(0.06),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1,
+                )
+        )
+        .shadow(color: .black.opacity(scheme == .dark ? 0.28 : 0.05), radius: 16, y: 8)
+    }
+}
+
+private struct RecordChoiceChip: View {
+    let title: String
+    let selected: Bool
+    let action: () -> Void
+    @Environment(\.colorScheme) private var scheme
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.caption.bold())
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .padding(.horizontal, 8)
+                .foregroundStyle(selected ? Color.rose : .primary)
+                .background {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(.thinMaterial)
+                        if selected {
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .fill(Color.rose.opacity(scheme == .dark ? 0.22 : 0.14))
+                        }
+                    }
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .strokeBorder(
+                            selected ? Color.rose.opacity(0.55) : Color.white.opacity(scheme == .dark ? 0.14 : 0.32),
+                            lineWidth: selected ? 1.5 : 1
+                        )
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct FlameRatingRow: View {
+    @Binding var rating: Int
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(1 ... 5, id: \.self) { index in
+                Button {
+                    let next = index
+                    if rating != next {
+                        FalemeHaptics.light()
+                        rating = next
+                    }
+                } label: {
+                    Image(systemName: index <= rating ? "flame.fill" : "flame")
+                        .font(.system(size: 30))
+                        .foregroundStyle(index <= rating ? Color.rose : Color.secondary.opacity(0.38))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
+        .background(Color.rose.opacity(0.06), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Color.rose.opacity(0.18), lineWidth: 1)
+        )
+        .animation(.spring(response: 0.32, dampingFraction: 0.72), value: rating)
     }
 }
 

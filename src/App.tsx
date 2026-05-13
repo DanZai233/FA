@@ -1560,10 +1560,9 @@ function predictCycle(cycle: CycleRecord, records: IntimacyRecord[]): CyclePredi
   const fertileStart = addDays(nextStart, -15);
   const fertileEnd = addDays(nextStart, -10);
   const now = new Date(isoDate(new Date()));
-  const latestRecord = records[0];
   const inPeriod = now >= nextStart && now <= nextEnd;
   const inFertile = now >= fertileStart && now <= fertileEnd;
-  const tooFrequent = latestRecord ? daysBetween(new Date(latestRecord.occurredAt), now) <= 1 : false;
+  const tooFrequent = recordCountOnRecentUtcDays(records, new Date(), 2) >= 2;
   let todayAdvice = defaultAdvice;
 
   if (inPeriod) {
@@ -1631,7 +1630,14 @@ function buildTags(draft: RecordDraft, riskLevel: RiskLevel) {
   ];
 }
 
-function daysBetween(a: Date, b: Date) {
-  const ms = new Date(isoDate(b)).getTime() - new Date(isoDate(a)).getTime();
-  return Math.floor(ms / 86_400_000);
+/** Count records whose occurredAt (UTC yyyy-MM-dd) falls within the last `daySpan` UTC calendar days ending at `anchor`. */
+function recordCountOnRecentUtcDays(records: IntimacyRecord[], anchor: Date, daySpan: number): number {
+  if (daySpan < 1 || records.length === 0) return 0;
+  const allowed = new Set<string>();
+  for (let i = 0; i < daySpan; i++) {
+    const d = new Date(anchor.getTime());
+    d.setUTCDate(d.getUTCDate() - i);
+    allowed.add(isoDate(d));
+  }
+  return records.filter((r) => allowed.has(r.occurredAt)).length;
 }

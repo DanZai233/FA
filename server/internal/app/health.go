@@ -111,11 +111,9 @@ func PredictCycle(cycles []CycleRecord, records []IntimacyRecord) CyclePredictio
 		advice = HealthAdvice{Level: RiskHigh, Title: "经期窗口，先别硬闯副本", Body: "经期前后身体更敏感。如果仍要亲密，请充分沟通、注意卫生和保护，疼痛或不适就停止。", Action: "优先选择陪伴、热敷、休息。"}
 	} else if between(now, truncateDate(fertileStart), truncateDate(fertileEnd)) {
 		advice = HealthAdvice{Level: RiskHigh, Title: "高风险窗口，别拿概率开玩笑", Body: "易孕期附近如果发生无保护性行为，意外怀孕风险更高。请认真使用可靠避孕方式。", Action: "没有保护就暂停；已发生风险行为请及时咨询专业人士。"}
-	} else if len(records) > 0 {
-		latest, err := time.Parse("2006-01-02", records[0].OccurredAt)
-		if err == nil && int(now.Sub(truncateDate(latest)).Hours()/24) <= 1 {
-			advice = HealthAdvice{Level: RiskMedium, Title: "记录有点密，别把身体当 KPI", Body: "频率没有统一标准，但疼痛、疲劳、焦虑或影响生活时，就是身体在敲桌子。", Action: "今天可以选择拥抱、聊天、自慰知识卡或早点睡。"}
-		}
+	} else if countRecordsBetweenCalendarDates(records, truncateDate(now.AddDate(0, 0, -1)), truncateDate(now)) >= 2 {
+		// 单日一次不应显示「太密」：仅在最近两个日历日内累计 ≥2 条时提示。
+		advice = HealthAdvice{Level: RiskMedium, Title: "记录有点密，别把身体当 KPI", Body: "频率没有统一标准，但疼痛、疲劳、焦虑或影响生活时，就是身体在敲桌子。", Action: "今天可以选择拥抱、聊天、自慰知识卡或早点睡。"}
 	}
 	return CyclePrediction{
 		NextPeriodStart: formatDate(nextStart),
@@ -161,4 +159,25 @@ func truncateDate(t time.Time) time.Time {
 
 func between(value, start, end time.Time) bool {
 	return (value.Equal(start) || value.After(start)) && (value.Equal(end) || value.Before(end))
+}
+
+// countRecordsBetweenCalendarDates counts records whose OccurredAt (date-only) falls on startDay..endDay inclusive.
+func countRecordsBetweenCalendarDates(records []IntimacyRecord, startDay, endDay time.Time) int {
+	startD := truncateDate(startDay)
+	endD := truncateDate(endDay)
+	if endD.Before(startD) {
+		return 0
+	}
+	n := 0
+	for _, r := range records {
+		t, err := time.Parse("2006-01-02", r.OccurredAt)
+		if err != nil {
+			continue
+		}
+		d := truncateDate(t)
+		if !d.Before(startD) && !d.After(endD) {
+			n++
+		}
+	}
+	return n
 }

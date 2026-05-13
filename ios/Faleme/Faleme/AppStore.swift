@@ -1,6 +1,11 @@
 import Foundation
 import Combine
 
+struct ShareExportItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
 @MainActor
 final class AppStore: ObservableObject {
     @Published var role: UserRole = .initiator
@@ -26,6 +31,9 @@ final class AppStore: ObservableObject {
     @Published var knowledgeCards: [KnowledgeCard] = []
     @Published var isOfflineDemo = true
     @Published var privacyMessage = "免登录设备身份已启用"
+    @Published var profileNickname = "免登录成年人"
+    @Published var privacyLockEnabled = true
+    @Published var shareExportItem: ShareExportItem?
 
     private let api: APIService
 
@@ -37,6 +45,50 @@ final class AppStore: ObservableObject {
     func setRole(_ role: UserRole) {
         self.role = role
         UserDefaults.standard.set(role.rawValue, forKey: "faleme.role")
+        Task {
+            do {
+                let me = try await api.updateMe(role: role)
+                profileNickname = me.nickname
+                privacyLockEnabled = me.privacyLock ?? true
+                isOfflineDemo = false
+            } catch {
+                isOfflineDemo = true
+            }
+        }
+    }
+
+    func updatePrivacyLock(_ on: Bool) {
+        privacyLockEnabled = on
+        Task {
+            do {
+                let me = try await api.updateMe(privacyLock: on)
+                profileNickname = me.nickname
+                privacyLockEnabled = me.privacyLock ?? true
+                isOfflineDemo = false
+            } catch {
+                isOfflineDemo = true
+            }
+        }
+    }
+
+    func saveNickname(_ raw: String) async {
+        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { return }
+        do {
+            let me = try await api.updateMe(nickname: name)
+            profileNickname = me.nickname
+            isOfflineDemo = false
+        } catch {
+            profileNickname = name
+            isOfflineDemo = true
+        }
+    }
+
+    func clearShareExport() {
+        if let url = shareExportItem?.url {
+            try? FileManager.default.removeItem(at: url)
+        }
+        shareExportItem = nil
     }
 
     func load() async {
@@ -58,22 +110,31 @@ final class AppStore: ObservableObject {
             self.partnerLink = try? await partner
             self.partnerMessages = try await partnerMessages
             self.isOfflineDemo = false
+            await refreshProfileFromServer()
         } catch {
             seedDemoData()
             self.isOfflineDemo = true
         }
     }
 
-    func addRecord(type: IntimacyType, protection: ProtectionMethod) async {
+    private func refreshProfileFromServer() async {
+        guard let me = try? await api.me() else { return }
+        profileNickname = me.nickname
+        privacyLockEnabled = me.privacyLock ?? true
+        role = me.role
+        UserDefaults.standard.set(me.role.rawValue, forKey: "faleme.role")
+    }
+
+    func addRecord(type: IntimacyType, protection: ProtectionMethod, rating: Int, consentChecked: Bool, sharedWithPartner: Bool) async {
         let record = IntimacyRecord(
             id: "ios-\(Date().timeIntervalSince1970)",
             userId: nil,
             occurredAt: Self.todayString,
             type: type,
             protection: protection,
-            consentChecked: true,
-            sharedWithPartner: false,
-            rating: 4,
+            consentChecked: consentChecked,
+            sharedWithPartner: sharedWithPartner,
+            rating: rating,
             riskLevel: protection == .none ? .high : .low,
             noteTags: [type.title, protection.title]
         )
@@ -244,10 +305,13 @@ final class AppStore: ObservableObject {
     func exportData() async {
         do {
             let data = try await api.exportData()
-            privacyMessage = "已导出 \(data.count) 字节数据。真机版本可接分享面板。"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("faleme-export-\(Int(Date().timeIntervalSince1970)).json")
+            try data.write(to: url)
+            shareExportItem = ShareExportItem(url: url)
+            privacyMessage = "在系统分享面板中选择“存储到文件”或发送。"
             isOfflineDemo = false
         } catch {
-            privacyMessage = "后端未连接，当前只能查看本地演示数据。"
+            privacyMessage = "导出失败，请确认已连接后端。"
             isOfflineDemo = true
         }
     }
@@ -257,8 +321,13 @@ final class AppStore: ObservableObject {
             try await api.deleteAccount()
             records = []
             posts = []
-            privacyMessage = "账号与设备数据已请求删除。"
+            cycles = []
+            partnerMessages = []
+            partnerLink = nil
+            match = nil
+            privacyMessage = "账号已删除。"
             isOfflineDemo = false
+            await load()
         } catch {
             privacyMessage = "删除请求未送达后端，请稍后再试。"
             isOfflineDemo = true
@@ -281,6 +350,8 @@ final class AppStore: ObservableObject {
         knowledgeCards = [
             KnowledgeCard(id: "k-1", category: "保护", title: "安全套不是气氛杀手", body: "正确佩戴、全程使用、事后检查。", action: "先准备，再浪漫。", tone: "成年人不赌概率。")
         ]
+        profileNickname = "演示用户"
+        privacyLockEnabled = true
     }
 
     private func replacePost(_ post: SocialPost) {

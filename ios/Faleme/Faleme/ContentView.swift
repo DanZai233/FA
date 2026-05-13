@@ -387,6 +387,9 @@ private struct AddRecordView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var type: IntimacyType = .penetrative
     @State private var protection: ProtectionMethod = .condom
+    @State private var rating = 4
+    @State private var consentChecked = true
+    @State private var sharedWithPartner = false
 
     var body: some View {
         NavigationStack {
@@ -401,9 +404,15 @@ private struct AddRecordView: View {
                         Text(item.title).tag(item)
                     }
                 }
-                Section("安全确认") {
-                    Label("双方明确同意", systemImage: "checkmark.seal.fill")
-                    Label("不舒服就停止", systemImage: "hand.raised.fill")
+                Section("体验与安全") {
+                    Stepper(value: $rating, in: 1...5) {
+                        Text("主观评分：\(rating) / 5")
+                    }
+                    Toggle("双方明确同意", isOn: $consentChecked)
+                    Toggle("分享给已绑定伴侣", isOn: $sharedWithPartner)
+                    Text("不舒服随时停止；不同意或未清醒时不要记录为已同意。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
             .navigationTitle("记录这次亲密")
@@ -411,10 +420,17 @@ private struct AddRecordView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") {
                         Task {
-                            await store.addRecord(type: type, protection: protection)
+                            await store.addRecord(
+                                type: type,
+                                protection: protection,
+                                rating: rating,
+                                consentChecked: consentChecked,
+                                sharedWithPartner: sharedWithPartner
+                            )
                             dismiss()
                         }
                     }
+                    .disabled(!consentChecked)
                 }
             }
         }
@@ -923,11 +939,25 @@ private struct SquareView: View {
 private struct ProfileView: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage("faleme.offline.enabled") private var offlineMode = false
+    @State private var nicknameDraft = ""
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 PageHeader(title: "我的", subtitle: "成年人的体面，是知道什么时候该认真。")
+                Card(title: "昵称") {
+                    TextField("怎么称呼你", text: $nicknameDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .textInputAutocapitalization(.words)
+                    Button("保存昵称") {
+                        Task { await store.saveNickname(nicknameDraft) }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.black)
+                    Text("与后端账号同步；离线演示模式下也会尽量记在本地文案里。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Card(title: "角色偏好") {
                     Text("这里决定首页大按钮显示“法了！”还是“被法了！”。想换身份，来设置里换，首页负责少想多记。")
                         .font(.subheadline)
@@ -937,13 +967,13 @@ private struct ProfileView: View {
                             store.setRole(.initiator)
                         }
                         .font(.caption.bold())
-                        .foregroundStyle(store.role != .receiver ? .white : .secondary)
+                        .foregroundStyle(store.role == .initiator ? .white : .secondary)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.82)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(store.role != .receiver ? Color.rose : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                        .background(store.role == .initiator ? Color.rose : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
 
                         Button("我是“被法”的一方") {
                             store.setRole(.receiver)
@@ -957,6 +987,25 @@ private struct ProfileView: View {
                         .padding(.vertical, 12)
                         .background(store.role == .receiver ? Color.violet : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
                     }
+                    Button("看气氛发挥（双向）") {
+                        store.setRole(.switch)
+                    }
+                    .font(.caption.bold())
+                    .foregroundStyle(store.role == .switch ? .white : .secondary)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(store.role == .switch ? Color.black : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                }
+                Card(title: "隐私锁") {
+                    Toggle(isOn: Binding(
+                        get: { store.privacyLockEnabled },
+                        set: { store.updatePrivacyLock($0) }
+                    )) {
+                        Text("打开隐私锁提示")
+                    }
+                    Text("不影响记录功能，只在产品与心理上多一层「认真模式」提示。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 Card(title: "免登录设备身份") {
                     Text(DeviceIdentity.current)
@@ -987,6 +1036,9 @@ private struct ProfileView: View {
                 Card(title: "隐私与数据") {
                     Text(store.privacyMessage)
                         .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    Text("导出将弹出系统分享面板，可保存到「文件」App 或通过 AirDrop 发送。")
+                        .font(.caption)
                         .foregroundStyle(.secondary)
                     VStack(spacing: 10) {
                         Button("导出数据") {
@@ -1020,7 +1072,28 @@ private struct ProfileView: View {
             .padding(.vertical, 12)
         }
         .background(Color.grouped)
+        .onAppear {
+            nicknameDraft = store.profileNickname
+        }
+        .onChange(of: store.profileNickname) { _, val in
+            nicknameDraft = val
+        }
+        .sheet(item: $store.shareExportItem, onDismiss: {
+            store.clearShareExport()
+        }) { item in
+            ActivityView(activityItems: [item.url])
+        }
     }
+}
+
+private struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
 
 private struct AdviceCard: View {

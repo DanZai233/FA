@@ -4,6 +4,14 @@ struct APIService {
     var baseURL = URL(string: "http://localhost:8080")!
     var deviceID = DeviceIdentity.current
 
+    func me() async throws -> UserProfile {
+        try await request("/api/v1/me")
+    }
+
+    func updateMe(nickname: String? = nil, role: UserRole? = nil, privacyLock: Bool? = nil) async throws -> UserProfile {
+        try await request("/api/v1/me", method: "PUT", body: UpdateProfilePayload(nickname: nickname, role: role, privacyLock: privacyLock))
+    }
+
     func records() async throws -> [IntimacyRecord] {
         try await request("/api/v1/records")
     }
@@ -126,3 +134,9 @@ struct APIService {
 
 private struct EmptyBody: Encodable {}
 private struct EmptyResponse: Decodable {}
+
+private struct UpdateProfilePayload: Encodable {
+    var nickname: String?
+    var role: UserRole?
+    var privacyLock: Bool?
+}

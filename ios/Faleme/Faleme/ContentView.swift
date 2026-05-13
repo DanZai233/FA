@@ -23,6 +23,7 @@ struct ContentView: View {
                         .tabItem { Label("我的", systemImage: "person.fill") }
                 }
                 .tint(Color.rose)
+                .falemeTabChrome()
                 .task {
                     await store.load()
                 }
@@ -113,7 +114,7 @@ private struct OfflineModeView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color.grouped)
+        .falemeScreenChrome()
     }
 
     private var todayCount: Int {
@@ -130,7 +131,18 @@ private struct OfflineModeView: View {
             }
         }
         .padding(4)
-        .background(.white.opacity(0.75), in: RoundedRectangle(cornerRadius: 24))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [Color.white.opacity(0.45), Color.white.opacity(0.08)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1,
+                )
+        )
     }
 
     private func roleButton(_ title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -143,6 +155,7 @@ private struct OfflineModeView: View {
     }
 
     private func save(_ label: String, role: UserRole) {
+        FalemeHaptics.rigid()
         records.insert(OfflineRecord(id: UUID().uuidString, label: label, role: role.rawValue, occurredAt: Self.todayString, timestamp: Date().timeIntervalSince1970), at: 0)
         Self.store(records)
     }
@@ -185,7 +198,7 @@ private struct RoleTheme {
 
     var gradient: LinearGradient {
         LinearGradient(
-            colors: isReceiver ? [Color.violet, Color.pink] : [Color.rose, Color.pink],
+            colors: isReceiver ? [Color.violet, Color.falemeMagenta] : [Color.rose, Color.falemeMagenta],
             startPoint: .topLeading,
             endPoint: .bottomTrailing
         )
@@ -214,6 +227,9 @@ private struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 20) {
+                    if ComfortCopy.enabled {
+                        ComfortBanner(text: ComfortCopy.line())
+                    }
                     HomeHeroView(theme: theme, records: store.records) {
                         isAdding = true
                     }
@@ -243,7 +259,11 @@ private struct HomeView: View {
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
-            .background(Color.grouped)
+            .refreshable {
+                await store.load()
+            }
+            .falemeScreenChrome()
+            .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
             .sheet(isPresented: $isAdding) {
                 AddRecordView()
             }
@@ -280,7 +300,10 @@ private struct HomeHeroView: View {
             }
             .frame(maxWidth: .infinity)
 
-            Button(action: onTap) {
+            Button(action: {
+                FalemeHaptics.light()
+                onTap()
+            }) {
                 VStack(spacing: 10) {
                     Image(systemName: theme.icon)
                         .font(.system(size: 56))
@@ -311,7 +334,18 @@ private struct HomeHeroView: View {
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 18)
         .padding(.vertical, 22)
-        .background(theme.gradient, in: RoundedRectangle(cornerRadius: 38))
+        .background(theme.gradient, in: RoundedRectangle(cornerRadius: 38, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 38, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [.white.opacity(0.38), .white.opacity(0.12)],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1,
+                )
+        )
         .shadow(color: theme.shadow, radius: 30, y: 18)
     }
 }
@@ -338,7 +372,11 @@ private struct HeroStatPill: View {
         .multilineTextAlignment(.center)
         .padding(.vertical, 10)
         .padding(.horizontal, 6)
-        .background(.white.opacity(0.15), in: RoundedRectangle(cornerRadius: 16))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.28), lineWidth: 1)
+        )
     }
 }
 
@@ -361,6 +399,7 @@ private struct ChecklistItem: View {
     let done: Bool
     let title: String
     let detail: String
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
@@ -378,7 +417,14 @@ private struct ChecklistItem: View {
             }
         }
         .padding(12)
-        .background(Color.grouped, in: RoundedRectangle(cornerRadius: 22))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(
+                    Color.white.opacity(scheme == .dark ? 0.14 : 0.42),
+                    lineWidth: 1,
+                )
+        )
     }
 }
 
@@ -415,6 +461,7 @@ private struct AddRecordView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .scrollContentBackground(.hidden)
             .navigationTitle("记录这次亲密")
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
@@ -427,6 +474,7 @@ private struct AddRecordView: View {
                                 consentChecked: consentChecked,
                                 sharedWithPartner: sharedWithPartner
                             )
+                            FalemeHaptics.success()
                             dismiss()
                         }
                     }
@@ -434,11 +482,13 @@ private struct AddRecordView: View {
                 }
             }
         }
+        .background(GlassRootBackground())
     }
 }
 
 private struct CycleView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.colorScheme) private var scheme
     @State private var periodStart = Self.defaultStart
     @State private var periodEnd = ""
     @State private var cycleLength = 28
@@ -462,10 +512,14 @@ private struct CycleView: View {
                             if let number = day.day {
                                 ZStack {
                                     Circle()
-                                        .fill(day.hasRecord ? Color.rose : day.isToday ? Color.black : Color.grouped)
+                                        .fill(calendarCellFill(day))
+                                    if day.isToday, !day.hasRecord {
+                                        Circle()
+                                            .strokeBorder(Color.rose.opacity(0.68), lineWidth: 2)
+                                    }
                                     Text("\(number)")
                                         .font(.system(size: 11, weight: .heavy))
-                                        .foregroundStyle(day.hasRecord || day.isToday ? .white : .secondary)
+                                        .foregroundStyle(calendarCellForeground(day))
                                         .minimumScaleFactor(0.5)
                                         .lineLimit(1)
                                 }
@@ -478,7 +532,7 @@ private struct CycleView: View {
                             }
                         }
                     }
-                    Text("粉色代表有记录，黑色代表今天。记录多了不是 KPI，身体舒服才算赢。")
+                    Text("玫瑰色为有记录之日；今天在浅色下以柔边圈出，深色下为高亮底色。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -492,12 +546,20 @@ private struct CycleView: View {
                         .textInputAutocapitalization(.never)
                         .font(.subheadline.bold())
                         .padding()
-                        .background(Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.white.opacity(scheme == .dark ? 0.12 : 0.35), lineWidth: 1)
+                        )
                     TextField("经期结束，可不填", text: $periodEnd)
                         .textInputAutocapitalization(.never)
                         .font(.subheadline.bold())
                         .padding()
-                        .background(Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.white.opacity(scheme == .dark ? 0.12 : 0.35), lineWidth: 1)
+                        )
                     Stepper("平均周期 \(cycleLength) 天", value: $cycleLength, in: 20...45)
                         .font(.subheadline.bold())
                     Button("保存周期并刷新预测") {
@@ -543,7 +605,10 @@ private struct CycleView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color.grouped)
+        .refreshable {
+            await store.load()
+        }
+        .falemeScreenChrome()
         .onAppear {
             if let cycle = store.cycles.first {
                 periodStart = cycle.periodStart
@@ -551,6 +616,22 @@ private struct CycleView: View {
                 cycleLength = cycle.cycleLength
             }
         }
+    }
+
+    private func calendarCellFill(_ day: CalendarDay) -> Color {
+        if day.hasRecord {
+            Color.rose.opacity(0.9)
+        } else if day.isToday {
+            scheme == .dark ? Color.white.opacity(0.18) : Color.primary.opacity(0.12)
+        } else {
+            scheme == .dark ? Color.white.opacity(0.07) : Color.primary.opacity(0.06)
+        }
+    }
+
+    private func calendarCellForeground(_ day: CalendarDay) -> Color {
+        if day.hasRecord { return .white }
+        if day.isToday { return .primary }
+        return Color.secondary.opacity(0.95)
     }
 
     private static var defaultStart: String {
@@ -563,54 +644,58 @@ private struct CycleView: View {
 private struct CycleForecastCard: View {
     let prediction: HealthAdvice
     let records: [IntimacyRecord]
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            Text("cycle forecast")
-                .font(.caption2.bold())
-                .tracking(3)
-                .foregroundStyle(.white.opacity(0.42))
-            Text("身体天气预报")
-                .font(.title2.bold())
-                .foregroundStyle(.white)
-            Text("预测只能提醒，不能替代身体感受。疼痛、异常出血或明显不适时，优先咨询医生。")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.68))
-                .fixedSize(horizontal: false, vertical: true)
-            HStack(spacing: 6) {
-                DarkStatPill(label: "活跃天", value: "\(Set(records.map(\.occurredAt)).count) 天")
-                DarkStatPill(label: "提醒", value: prediction.level == .high ? "严厉" : "温和")
-                DarkStatPill(label: "记录", value: "\(records.count) 条")
+        GlassHeroSurface {
+            VStack(alignment: .leading, spacing: 14) {
+                Text("cycle forecast")
+                    .font(.caption2.bold())
+                    .tracking(3)
+                    .foregroundStyle(scheme == .dark ? .white.opacity(0.42) : .secondary)
+                Text("身体天气预报")
+                    .font(.title2.bold())
+                    .foregroundStyle(scheme == .dark ? .white : .primary)
+                Text("预测只能提醒，不能替代身体感受。疼痛、异常出血或明显不适时，优先咨询医生。")
+                    .font(.subheadline)
+                    .foregroundStyle(scheme == .dark ? .white.opacity(0.68) : .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                HStack(spacing: 6) {
+                    GlassHeroStatPill(label: "活跃天", value: "\(Set(records.map(\.occurredAt)).count) 天")
+                    GlassHeroStatPill(label: "提醒", value: prediction.level == .high ? "严厉" : "温和")
+                    GlassHeroStatPill(label: "记录", value: "\(records.count) 条")
+                }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding()
-        .background(.black, in: RoundedRectangle(cornerRadius: 32))
-        .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
     }
 }
 
-private struct DarkStatPill: View {
+private struct GlassHeroStatPill: View {
     let label: String
     let value: String
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
                 .font(.caption2.bold())
-                .foregroundStyle(.white.opacity(0.42))
+                .foregroundStyle(scheme == .dark ? .white.opacity(0.42) : .secondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
             Text(value)
                 .font(.caption.bold())
-                .foregroundStyle(.white)
+                .foregroundStyle(scheme == .dark ? .white : .primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.vertical, 10)
         .padding(.horizontal, 8)
-        .background(.white.opacity(0.1), in: RoundedRectangle(cornerRadius: 16))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(scheme == .dark ? 0.14 : 0.28), lineWidth: 1)
+        )
     }
 }
 
@@ -642,6 +727,7 @@ private func calendarDays(records: [IntimacyRecord]) -> [CalendarDay] {
 
 private struct PartnerView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.colorScheme) private var scheme
     @State private var phrase = randomPhrase()
     @State private var inviteInput = ""
 
@@ -652,68 +738,77 @@ private struct PartnerView: View {
         ScrollView {
             VStack(spacing: 16) {
                 PageHeader(title: "伴侣绑定", subtitle: "两个人的事，权限也要两个人确认。")
-                VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .top, spacing: 12) {
+                GlassHeroSurface {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack(alignment: .top, spacing: 12) {
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text("partner link")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(scheme == .dark ? .white.opacity(0.45) : .secondary)
+                                Text(isLinked ? "已绑定心动搭子" : "等待绑定搭子")
+                                    .font(.title2.bold())
+                                    .foregroundStyle(scheme == .dark ? .white : .primary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                Text(isLinked ? "共享不是偷看，所有记录都要逐项授权。" : "把邀请码交给对方，双方确认后再进入同步模式。")
+                                    .font(.subheadline)
+                                    .foregroundStyle(scheme == .dark ? .white.opacity(0.68) : .secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            Image(systemName: "heart.fill")
+                                .font(.title2)
+                                .foregroundStyle(Color.rose.opacity(0.9))
+                                .frame(width: 48, height: 48)
+                                .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                        .strokeBorder(Color.white.opacity(scheme == .dark ? 0.14 : 0.32), lineWidth: 1)
+                                )
+                        }
                         VStack(alignment: .leading, spacing: 8) {
-                            Text("partner link")
+                            Text("绑定邀请码")
                                 .font(.caption.bold())
-                                .foregroundStyle(.white.opacity(0.45))
-                            Text(isLinked ? "已绑定心动搭子" : "等待绑定搭子")
-                                .font(.title2.bold())
-                                .foregroundStyle(.white)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Text(isLinked ? "共享不是偷看，所有记录都要逐项授权。" : "把邀请码交给对方，双方确认后再进入同步模式。")
-                                .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.68))
-                                .fixedSize(horizontal: false, vertical: true)
+                                .foregroundStyle(.secondary)
+                            HStack(alignment: .center, spacing: 8) {
+                                Text(inviteCode)
+                                    .font(.system(size: 26, weight: .black, design: .monospaced))
+                                    .foregroundStyle(.primary)
+                                    .tracking(2)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.45)
+                                    .layoutPriority(1)
+                                Text(isLinked ? "已确认" : "待确认")
+                                    .font(.caption.bold())
+                                    .foregroundStyle(Color.rose)
+                                    .padding(.horizontal, 10)
+                                    .padding(.vertical, 6)
+                                    .background(Color.rose.opacity(0.1), in: Capsule())
+                                    .fixedSize()
+                            }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        Image(systemName: "heart.fill")
-                            .font(.title2)
-                            .foregroundStyle(.pink.opacity(0.8))
-                            .frame(width: 48, height: 48)
-                            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 18))
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("绑定邀请码")
-                            .font(.caption.bold())
-                            .foregroundStyle(.secondary)
-                        HStack(alignment: .center, spacing: 8) {
-                            Text(inviteCode)
-                                .font(.system(size: 26, weight: .black, design: .monospaced))
-                                .tracking(2)
-                                .lineLimit(1)
-                                .minimumScaleFactor(0.45)
-                                .layoutPriority(1)
-                            Text(isLinked ? "已确认" : "待确认")
-                                .font(.caption.bold())
-                                .foregroundStyle(Color.rose)
-                                .padding(.horizontal, 10)
-                                .padding(.vertical, 6)
-                                .background(Color.rose.opacity(0.1), in: Capsule())
-                                .fixedSize()
+                        .padding()
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                                .strokeBorder(Color.white.opacity(scheme == .dark ? 0.14 : 0.38), lineWidth: 1)
+                        )
+                        HStack(spacing: 6) {
+                            stepPill("生成邀请码")
+                            stepPill("对方确认")
+                            stepPill("逐项共享")
                         }
-                    }
-                    .padding()
-                    .background(.white, in: RoundedRectangle(cornerRadius: 24))
-                    HStack(spacing: 6) {
-                        stepPill("生成邀请码")
-                        stepPill("对方确认")
-                        stepPill("逐项共享")
-                    }
-                    Button(isLinked ? "解除绑定" : "生成并复制邀请码") {
-                        if !isLinked {
-                            UIPasteboard.general.string = inviteCode
+                        Button(isLinked ? "解除绑定" : "生成并复制邀请码") {
+                            FalemeHaptics.light()
+                            if !isLinked {
+                                UIPasteboard.general.string = inviteCode
+                            }
+                            Task { await store.togglePartnerLink() }
                         }
-                        Task { await store.togglePartnerLink() }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.white)
+                        .foregroundStyle(.black)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.white)
-                    .foregroundStyle(.black)
                 }
-                .padding()
-                .background(.black, in: RoundedRectangle(cornerRadius: 32))
-                .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
                 Card(title: "共享权限") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
                         PermissionTile(active: isLinked, title: "共享最近记录", detail: "只同步主动勾选的记录")
@@ -727,7 +822,11 @@ private struct PartnerView: View {
                         .textInputAutocapitalization(.characters)
                         .font(.system(.headline, design: .monospaced))
                         .padding()
-                        .background(Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.white.opacity(scheme == .dark ? 0.12 : 0.35), lineWidth: 1)
+                        )
                     Button("接受邀请并绑定") {
                         Task { await store.acceptPartnerInvite(inviteCode: inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()) }
                     }
@@ -740,10 +839,12 @@ private struct PartnerView: View {
                         .font(.headline)
                         .fixedSize(horizontal: false, vertical: true)
                     Button("随机换一句") {
+                        FalemeHaptics.light()
                         phrase = randomPhrase()
                     }
                     .buttonStyle(.bordered)
                     Button("发送预设留言") {
+                        FalemeHaptics.light()
                         Task { await store.sendPartnerMessage(phrase: phrase) }
                     }
                     .buttonStyle(.borderedProminent)
@@ -768,20 +869,27 @@ private struct PartnerView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color.grouped)
+        .refreshable {
+            await store.load()
+        }
+        .falemeScreenChrome()
     }
 
     private func stepPill(_ title: String) -> some View {
         Text(title)
             .font(.system(size: 10, weight: .heavy))
-            .foregroundStyle(.white.opacity(0.82))
+            .foregroundStyle(scheme == .dark ? Color.white.opacity(0.86) : Color.primary.opacity(0.76))
             .multilineTextAlignment(.center)
             .lineLimit(2)
             .minimumScaleFactor(0.75)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 10)
             .padding(.horizontal, 4)
-            .background(.white.opacity(0.12), in: RoundedRectangle(cornerRadius: 14))
+            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(Color.white.opacity(scheme == .dark ? 0.14 : 0.32), lineWidth: 1)
+            )
     }
 }
 
@@ -789,13 +897,14 @@ private struct PermissionTile: View {
     let active: Bool
     let title: String
     let detail: String
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Image(systemName: active ? "checkmark.seal.fill" : "lock.fill")
                 .foregroundStyle(active ? Color.rose : .secondary)
                 .frame(width: 34, height: 34)
-                .background(active ? Color.rose.opacity(0.12) : Color.grouped, in: RoundedRectangle(cornerRadius: 14))
+                .background(active ? Color.rose.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             Text(title)
                 .font(.caption.bold())
             Text(detail)
@@ -807,7 +916,23 @@ private struct PermissionTile: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(active ? Color.rose.opacity(0.08) : Color.grouped, in: RoundedRectangle(cornerRadius: 20))
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(.thinMaterial)
+                if active {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.rose.opacity(0.08))
+                }
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    active ? Color.rose.opacity(0.35) : Color.primary.opacity(scheme == .dark ? 0.14 : 0.10),
+                    lineWidth: active ? 1.5 : 1
+                )
+        )
     }
 }
 
@@ -825,6 +950,7 @@ private struct ResonanceStrip: View {
 
 private struct SquareView: View {
     @EnvironmentObject private var store: AppStore
+    @Environment(\.colorScheme) private var scheme
     @State private var phrase = randomPhrase()
 
     var body: some View {
@@ -832,27 +958,26 @@ private struct SquareView: View {
         ScrollView {
             VStack(spacing: 16) {
                 PageHeader(title: "预设广场", subtitle: "不开放自由聊天。成年人发言，也要带刹车。")
-                VStack(alignment: .leading, spacing: 14) {
-                    Text("safe square")
-                        .font(.caption2.bold())
-                        .tracking(3)
-                        .foregroundStyle(.white.opacity(0.42))
-                    Text("今日广场温度")
-                        .font(.title2.bold())
-                        .foregroundStyle(.white)
-                    Text("只允许预设拼句、共鸣、举报和屏蔽。热闹可以，失控不行。")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.68))
-                        .fixedSize(horizontal: false, vertical: true)
-                    HStack(spacing: 6) {
-                        DarkStatPill(label: "留言", value: "\(store.posts.count) 条")
-                        DarkStatPill(label: "共鸣", value: "\(totalResonance)")
-                        DarkStatPill(label: "自由聊", value: "0")
+                GlassHeroSurface {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("safe square")
+                            .font(.caption2.bold())
+                            .tracking(3)
+                            .foregroundStyle(scheme == .dark ? .white.opacity(0.42) : .secondary)
+                        Text("今日广场温度")
+                            .font(.title2.bold())
+                            .foregroundStyle(scheme == .dark ? .white : .primary)
+                        Text("只允许预设拼句、共鸣、举报和屏蔽。热闹可以，失控不行。")
+                            .font(.subheadline)
+                            .foregroundStyle(scheme == .dark ? .white.opacity(0.68) : .secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 6) {
+                            GlassHeroStatPill(label: "留言", value: "\(store.posts.count) 条")
+                            GlassHeroStatPill(label: "共鸣", value: "\(totalResonance)")
+                            GlassHeroStatPill(label: "自由聊", value: "0")
+                        }
                     }
                 }
-                .padding()
-                .background(.black, in: RoundedRectangle(cornerRadius: 32))
-                .shadow(color: .black.opacity(0.12), radius: 24, y: 12)
                 Card(title: "摇一摇轻匹配") {
                     if let match = store.match {
                         Text("匹配到：\(match.alias)")
@@ -867,6 +992,7 @@ private struct SquareView: View {
                             .foregroundStyle(.secondary)
                     }
                     Button("摇一下，随机匹配预设句") {
+                        FalemeHaptics.light()
                         Task { await store.shakeMatch() }
                     }
                     .buttonStyle(.borderedProminent)
@@ -880,10 +1006,12 @@ private struct SquareView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Button("随机重组一句") {
+                        FalemeHaptics.light()
                         phrase = randomPhrase()
                     }
                     .buttonStyle(.bordered)
                     Button("发布到匿名广场") {
+                        FalemeHaptics.light()
                         Task { await store.publish(phrase: phrase) }
                     }
                     .buttonStyle(.borderedProminent)
@@ -932,25 +1060,61 @@ private struct SquareView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color.grouped)
+        .refreshable {
+            await store.load()
+        }
+        .falemeScreenChrome()
     }
 }
 
 private struct ProfileView: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage("faleme.offline.enabled") private var offlineMode = false
+    @AppStorage("faleme.appearance") private var appearanceRaw = FalemeAppearance.system.rawValue
+    @AppStorage("faleme.haptics.enabled") private var hapticsEnabled = true
+    @AppStorage("faleme.comfort.banner") private var comfortBannerEnabled = true
     @State private var nicknameDraft = ""
 
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
                 PageHeader(title: "我的", subtitle: "成年人的体面，是知道什么时候该认真。")
+                if store.isOfflineDemo {
+                    Text("当前与云端未同步，正在使用本机或演示数据。下拉页面可刷新。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(12)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: FalemeShape.cardMinor, style: .continuous))
+                }
+                Card(title: "外观") {
+                    Picker("界面模式", selection: $appearanceRaw) {
+                        ForEach(FalemeAppearance.allCases) { mode in
+                            Text(mode.displayName).tag(mode.rawValue)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    Text(FalemeAppearance(rawValue: appearanceRaw)?.subtitle ?? "")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Card(title: "体验与关怀") {
+                    Toggle("操作成功时轻触感", isOn: $hapticsEnabled)
+                    Toggle("首页显示时段问候", isOn: $comfortBannerEnabled)
+                    Text("问候语只本地展示；触感走系统触感引擎，不上传。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Card(title: "昵称") {
                     TextField("怎么称呼你", text: $nicknameDraft)
                         .textFieldStyle(.roundedBorder)
                         .textInputAutocapitalization(.words)
                     Button("保存昵称") {
-                        Task { await store.saveNickname(nicknameDraft) }
+                        Task {
+                            await store.saveNickname(nicknameDraft)
+                            FalemeHaptics.success()
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.black)
@@ -967,34 +1131,74 @@ private struct ProfileView: View {
                             store.setRole(.initiator)
                         }
                         .font(.caption.bold())
-                        .foregroundStyle(store.role == .initiator ? .white : .secondary)
+                        .foregroundStyle(store.role == .initiator ? .white : .primary)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.82)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(store.role == .initiator ? Color.rose : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                        .background {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial)
+                                if store.role == .initiator {
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.rose)
+                                }
+                            }
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.white.opacity(store.role == .initiator ? 0.35 : 0.2), lineWidth: 1)
+                        )
 
                         Button("我是“被法”的一方") {
                             store.setRole(.receiver)
                         }
                         .font(.caption.bold())
-                        .foregroundStyle(store.role == .receiver ? .white : .secondary)
+                        .foregroundStyle(store.role == .receiver ? .white : .primary)
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
                         .minimumScaleFactor(0.82)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
-                        .background(store.role == .receiver ? Color.violet : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                        .background {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial)
+                                if store.role == .receiver {
+                                    RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.violet)
+                                }
+                            }
+                        }
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.white.opacity(store.role == .receiver ? 0.35 : 0.2), lineWidth: 1)
+                        )
                     }
                     Button("看气氛发挥（双向）") {
                         store.setRole(.switch)
                     }
                     .font(.caption.bold())
-                    .foregroundStyle(store.role == .switch ? .white : .secondary)
+                    .foregroundStyle(store.role == .switch ? .white : .primary)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
-                    .background(store.role == .switch ? Color.black : Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+                    .background {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial)
+                            if store.role == .switch {
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(
+                                        LinearGradient(
+                                            colors: [Color.black.opacity(0.92), Color(red: 0.22, green: 0.12, blue: 0.2)],
+                                            startPoint: .topLeading,
+                                            endPoint: .bottomTrailing
+                                        )
+                                    )
+                            }
+                        }
+                    }
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.white.opacity(store.role == .switch ? 0.3 : 0.2), lineWidth: 1)
+                    )
                 }
                 Card(title: "隐私锁") {
                     Toggle(isOn: Binding(
@@ -1071,7 +1275,10 @@ private struct ProfileView: View {
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
-        .background(Color.grouped)
+        .refreshable {
+            await store.load()
+        }
+        .falemeScreenChrome()
         .onAppear {
             nicknameDraft = store.profileNickname
         }
@@ -1098,6 +1305,7 @@ private struct ActivityView: UIViewControllerRepresentable {
 
 private struct AdviceCard: View {
     let advice: HealthAdvice
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -1113,13 +1321,35 @@ private struct AdviceCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(advice.level == .high ? Color.red.opacity(0.1) : Color.orange.opacity(0.1), in: RoundedRectangle(cornerRadius: 24))
+        .background {
+            ZStack {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(.thinMaterial)
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill((advice.level == .high ? Color.red : Color.orange).opacity(scheme == .dark ? 0.12 : 0.10))
+            }
+        }
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(scheme == .dark ? 0.18 : 0.45),
+                            Color.white.opacity(0.05),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1,
+                )
+        )
     }
 }
 
 private struct Card<Content: View>: View {
     let title: String
     @ViewBuilder var content: Content
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -1129,7 +1359,22 @@ private struct Card<Content: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(.white, in: RoundedRectangle(cornerRadius: 28))
+        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: FalemeShape.card, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: FalemeShape.card, style: .continuous)
+                .strokeBorder(
+                    LinearGradient(
+                        colors: [
+                            Color.white.opacity(scheme == .dark ? 0.20 : 0.48),
+                            Color.white.opacity(0.05),
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    ),
+                    lineWidth: 1,
+                )
+        )
+        .shadow(color: .black.opacity(scheme == .dark ? 0.32 : 0.06), radius: 22, y: 10)
     }
 }
 
@@ -1138,13 +1383,17 @@ private struct PageHeader: View {
     let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 10) {
             Text(title)
                 .font(.largeTitle.bold())
+                .foregroundStyle(.primary)
             Text(subtitle)
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .padding(.vertical, 10)
+        .padding(.horizontal, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -1189,6 +1438,7 @@ private struct RecordRow: View {
 private struct MetricPill: View {
     let label: String
     let value: String
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -1204,7 +1454,11 @@ private struct MetricPill: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding()
-        .background(Color.grouped, in: RoundedRectangle(cornerRadius: 18))
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Color.white.opacity(scheme == .dark ? 0.12 : 0.35), lineWidth: 1)
+        )
     }
 }
 
@@ -1226,9 +1480,3 @@ private func latestShortDate(_ records: [IntimacyRecord]) -> String {
     return String(latest.occurredAt.dropFirst(5))
 }
 
-private extension Color {
-    static let rose = Color(red: 244 / 255, green: 63 / 255, blue: 94 / 255)
-    static let pink = Color(red: 236 / 255, green: 72 / 255, blue: 153 / 255)
-    static let violet = Color(red: 139 / 255, green: 92 / 255, blue: 246 / 255)
-    static let grouped = Color(red: 242 / 255, green: 242 / 255, blue: 247 / 255)
-}

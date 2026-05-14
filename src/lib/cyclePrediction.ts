@@ -11,6 +11,16 @@ import type {
 } from '../types/domain';
 import {recentShanghaiCalendarDays, shanghaiCalendarDay as isoDate} from '../datetime';
 
+/** 统计 occurredAt（yyyy-MM-dd）落在 anchor 起向前共 daySpan 个东八区自然日（含当日）内的记录条数 */
+export function recordCountOnRecentUtcDays(
+  records: IntimacyRecord[],
+  anchor: Date,
+  daySpan: number,
+): number {
+  const days = recentShanghaiCalendarDays(anchor, daySpan);
+  return records.filter((r) => days.has(r.occurredAt.trim().slice(0, 10))).length;
+}
+
 const addDays = (date: Date, days: number) => {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -91,7 +101,6 @@ export function calculateRisk(protection: ProtectionMethod, type: IntimacyType, 
   return 'low';
 }
 
-/** Count records whose occurredAt (yyyy-MM-dd) falls within the last `daySpan` 个东八区自然日（含 anchor 当日） */
 export function buildTags(draft: RecordDraft, riskLevel: RiskLevel) {
   return [
     intimacyTypeLabels[draft.type],

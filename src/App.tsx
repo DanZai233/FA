@@ -56,7 +56,7 @@ import {buildPostPartnerShareEcho, buildPostRecordEcho} from './lib/recordSaveFe
 import {getOfflinePending, setOfflinePending} from './lib/offlinePending';
 import {bumpRejectPresetStat, topRejectPresetId} from './lib/rejectPresetStats';
 import {buildYearReviewHtml} from './lib/yearReviewHtml';
-import {buildStats, buildTags, calculateRisk, predictCycle, recordCountOnRecentUtcDays} from './lib/cyclePrediction';
+import {buildStats, buildTags, calculateRisk, predictCycle} from './lib/cyclePrediction';
 import {
   normalizeRelationshipMode,
   partnerStatusFromHub,

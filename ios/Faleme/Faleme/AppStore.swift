@@ -28,6 +28,9 @@ final class AppStore: ObservableObject {
     @Published var match: MatchCard?
     @Published var partnerLink: PartnerLink?
     @Published var partnerMessages: [PartnerMessage] = []
+    @Published var partnerShareInbox: [PartnerShareRequest] = []
+    @Published var partnerShareOutbox: [PartnerShareRequest] = []
+    @Published var shareRejectPhrases: [ShareRejectPhrase] = []
     @Published var knowledgeCards: [KnowledgeCard] = []
     @Published var isOfflineDemo = true
     @Published var privacyMessage = "免登录设备身份已启用"
@@ -35,8 +38,11 @@ final class AppStore: ObservableObject {
     @Published var profileSquareAlias = ""
     @Published var privacyLockEnabled = true
     @Published var shareExportItem: ShareExportItem?
+    @Published var homeEcho: String?
+    @Published var recordSheetBanter: String?
 
     private let api: APIService
+    private var homeEchoResetTask: Task<Void, Never>?
 
     init(api: APIService) {
         self.api = api
@@ -117,6 +123,7 @@ final class AppStore: ObservableObject {
             async let reminder = api.reminderSummary()
             async let partner = api.partner()
             async let partnerMessages = api.partnerMessages()
+            async let shareWire = api.partnerShareRequests()
             self.records = try await records
             self.cycles = try await cycles
             self.posts = try await posts
@@ -125,6 +132,14 @@ final class AppStore: ObservableObject {
             self.reminder = try await reminder
             self.partnerLink = try? await partner
             self.partnerMessages = try await partnerMessages
+            if let wire = try? await shareWire {
+                partnerShareInbox = wire.inbox
+                partnerShareOutbox = wire.outbox
+            } else {
+                partnerShareInbox = []
+                partnerShareOutbox = []
+            }
+            shareRejectPhrases = (try? await api.partnerShareRejectPhrases()) ?? []
             self.isOfflineDemo = false
             await refreshProfileFromServer()
         } catch {
@@ -142,7 +157,86 @@ final class AppStore: ObservableObject {
         UserDefaults.standard.set(me.role.rawValue, forKey: "faleme.role")
     }
 
+    func bumpAndPrepareRecordSheetBanter() {
+        let n = FalemeQuips.bumpTodayFabClick(deviceKey: DeviceIdentity.current)
+        let latest = records.first?.rating
+        recordSheetBanter = FalemeQuips.heroFabBanter(role: role, clickCountToday: n, latestRating: latest)
+    }
+
+    func clearRecordSheetBanter() {
+        recordSheetBanter = nil
+    }
+
+    func flashHomeEcho(_ text: String) {
+        homeEcho = text
+        homeEchoResetTask?.cancel()
+        homeEchoResetTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 8_000_000_000)
+            if !Task.isCancelled { homeEcho = nil }
+        }
+    }
+
+    func dismissHomeEcho() {
+        homeEchoResetTask?.cancel()
+        homeEcho = nil
+    }
+
+    func refreshCompanionData() async {
+        if let wire = try? await api.partnerShareRequests() {
+            partnerShareInbox = wire.inbox
+            partnerShareOutbox = wire.outbox
+        }
+        if let msgs = try? await api.partnerMessages() {
+            partnerMessages = msgs
+        }
+        if let rec = try? await api.records() {
+            records = rec
+        }
+        shareRejectPhrases = (try? await api.partnerShareRejectPhrases()) ?? shareRejectPhrases
+    }
+
+    func acceptPartnerShare(id: String, receiverRating: Int) async {
+        do {
+            _ = try await api.acceptPartnerShareRequest(id: id, receiverRating: receiverRating)
+            isOfflineDemo = false
+            await refreshCompanionData()
+        } catch {
+            isOfflineDemo = true
+        }
+    }
+
+    func rejectPartnerShare(id: String, phrase: String) async {
+        do {
+            _ = try await api.rejectPartnerShareRequest(id: id, phrase: phrase)
+            isOfflineDemo = false
+            await refreshCompanionData()
+        } catch {
+            isOfflineDemo = true
+        }
+    }
+
     func addRecord(type: IntimacyType, protection: ProtectionMethod, rating: Int, consentChecked: Bool, sharedWithPartner: Bool) async {
+        let linked = partnerLink?.status == "linked"
+        if sharedWithPartner && linked {
+            let body = CreatePartnerShareBody(
+                occurredAt: Self.todayString,
+                type: type,
+                protection: protection,
+                consentChecked: consentChecked,
+                senderRating: min(5, max(1, rating)),
+                senderRole: role
+            )
+            do {
+                _ = try await api.createPartnerShareRequest(body)
+                await refreshCompanionData()
+                isOfflineDemo = false
+                flashHomeEcho(FalemeQuips.partnerShareAfterSend(senderRole: role))
+            } catch {
+                isOfflineDemo = true
+            }
+            return
+        }
+
         let record = IntimacyRecord(
             id: "ios-\(Date().timeIntervalSince1970)",
             userId: nil,
@@ -153,7 +247,8 @@ final class AppStore: ObservableObject {
             sharedWithPartner: sharedWithPartner,
             rating: rating,
             riskLevel: protection == .none ? .high : .low,
-            noteTags: [type.title, protection.title]
+            noteTags: [type.title, protection.title],
+            createdAt: nil
         )
         records.insert(record, at: 0)
         do {
@@ -162,6 +257,7 @@ final class AppStore: ObservableObject {
                 records[index] = saved
             }
             isOfflineDemo = false
+            flashHomeEcho(FalemeQuips.afterSaveBanter(role: role, rating: rating))
         } catch {
             isOfflineDemo = true
         }
@@ -341,6 +437,9 @@ final class AppStore: ObservableObject {
             posts = []
             cycles = []
             partnerMessages = []
+            partnerShareInbox = []
+            partnerShareOutbox = []
+            shareRejectPhrases = []
             partnerLink = nil
             match = nil
             privacyMessage = "账号已删除。"
@@ -365,6 +464,9 @@ final class AppStore: ObservableObject {
         partnerMessages = [
             PartnerMessage(id: "msg-1", userId: "demo", authorNickname: "演示用户", phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", scene: "partner", createdAt: Self.todayString)
         ]
+        partnerShareInbox = []
+        partnerShareOutbox = []
+        shareRejectPhrases = []
         knowledgeCards = [
             KnowledgeCard(id: "k-1", category: "保护", title: "安全套不是气氛杀手", body: "正确佩戴、全程使用、事后检查。", action: "先准备，再浪漫。", tone: "成年人不赌概率。")
         ]

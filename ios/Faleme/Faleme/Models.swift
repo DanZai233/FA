@@ -84,6 +84,7 @@ struct IntimacyRecord: Codable, Identifiable {
     var rating: Int
     var riskLevel: RiskLevel
     var noteTags: [String]
+    var createdAt: String?
 }
 
 struct CycleRecord: Codable, Identifiable {
@@ -135,6 +136,61 @@ struct PartnerLink: Codable, Identifiable {
     var canShare: Bool
     var createdAt: String
     var confirmedAt: String?
+}
+
+struct PartnerShareRequest: Codable, Identifiable, Hashable {
+    var id: String
+    var fromUserId: String
+    var toUserId: String
+    var status: String
+    var senderRole: UserRole?
+    var occurredAt: String
+    var type: IntimacyType
+    var protection: ProtectionMethod
+    var consentChecked: Bool
+    var senderRating: Int
+    var createdAt: String
+    var receiverRating: Int?
+    var rejectionPhrase: String?
+    var acceptedAt: String?
+    var rejectedAt: String?
+}
+
+struct PartnerShareWire: Codable {
+    var inbox: [PartnerShareRequest]
+    var outbox: [PartnerShareRequest]
+}
+
+struct ShareRejectPhrase: Codable, Identifiable, Hashable {
+    var id: String
+    var text: String
+    var emoji: String?
+}
+
+struct PartnerSharePhrasesPayload: Codable {
+    var phrases: [ShareRejectPhrase]
+}
+
+struct CreatePartnerShareBody: Encodable {
+    var occurredAt: String
+    var type: IntimacyType
+    var protection: ProtectionMethod
+    var consentChecked: Bool
+    var senderRating: Int
+    var senderRole: UserRole
+}
+
+struct AcceptPartnerSharePayload: Encodable {
+    var receiverRating: Int
+}
+
+struct RejectPartnerSharePayload: Encodable {
+    var phrase: String
+}
+
+struct AcceptPartnerShareResponse: Decodable {
+    var shareRequest: PartnerShareRequest
+    var record: IntimacyRecord?
 }
 
 struct KnowledgeCard: Codable, Identifiable {

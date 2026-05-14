@@ -486,9 +486,9 @@ function MobileApp() {
   const theme = roleTheme(profile.role);
 
   return (
-    <div className="flex min-h-screen justify-center bg-gradient-to-br from-[#fdf2f8] via-[#f4f4fb] to-[#fffbeb]">
-      <div className={`ios-safe-top relative flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden ${theme.pageBg} shadow-2xl`}>
-        <main className="flex-1 overflow-y-auto pb-28">
+    <div className="flex h-[100dvh] min-h-0 justify-center overflow-hidden bg-gradient-to-br from-[#fdf2f8] via-[#f4f4fb] to-[#fffbeb]">
+      <div className={`ios-safe-top relative flex h-full min-h-0 w-full max-w-[430px] flex-col overflow-hidden ${theme.pageBg} shadow-2xl`}>
+        <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
           {activeTab === 'home' && (
             <HomeView
               advice={prediction.todayAdvice}
@@ -703,7 +703,7 @@ function MobileApp() {
           )}
         </main>
 
-        <nav className="ios-safe-bottom absolute bottom-0 z-20 w-full border-t border-white/50 bg-white/80 backdrop-blur-xl">
+        <nav className="ios-safe-bottom relative z-20 w-full shrink-0 border-t border-white/50 bg-white/80 backdrop-blur-xl">
           <div className="grid h-16 grid-cols-5 px-2">
             <TabItem icon={<Flame size={22} />} label="记录" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
             <TabItem icon={<CalendarIcon size={22} />} label="法法日历" active={activeTab === 'cycle'} onClick={() => setActiveTab('cycle')} />
@@ -1599,7 +1599,7 @@ function SquareView({
         )}
       </section>
 
-      <div className="pointer-events-none fixed bottom-0 left-1/2 z-[25] flex w-full max-w-[430px] -translate-x-1/2 justify-center px-4 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] pt-2">
+      <div className="pointer-events-none fixed bottom-0 left-1/2 z-[25] flex w-full max-w-[430px] -translate-x-1/2 justify-center px-3 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] pt-2">
         <div className="pointer-events-auto flex w-full gap-1.5 rounded-2xl border border-white/70 bg-white/90 p-1.5 shadow-lg backdrop-blur-xl">
           <button
             type="button"
@@ -1645,7 +1645,7 @@ function SquareView({
               initial={{opacity: 0}}
               animate={{opacity: 1}}
               exit={{opacity: 0}}
-              className="fixed inset-0 z-40 bg-slate-950/35 backdrop-blur-[2px]"
+              className="fixed inset-3 z-40 rounded-2xl bg-slate-950/35 backdrop-blur-[2px] sm:inset-4"
               onClick={closeSheet}
             />
             <motion.div
@@ -1654,7 +1654,7 @@ function SquareView({
               animate={{y: 0}}
               exit={{y: '105%'}}
               transition={{type: 'spring', damping: 30, stiffness: 320}}
-              className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full max-w-[430px] flex-col rounded-t-[1.5rem] bg-white shadow-[0_-8px_40px_rgba(15,23,42,0.12)]"
+              className="fixed bottom-3 left-1/2 z-50 flex max-h-[min(88dvh,calc(100dvh-2rem))] w-[min(430px,calc(100vw-1.5rem))] -translate-x-1/2 flex-col overflow-hidden rounded-2xl bg-white shadow-[0_12px_48px_rgba(15,23,42,0.14)] sm:bottom-4"
             >
               <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200" />
               <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] pt-4">
@@ -1921,14 +1921,14 @@ function RecordSheet({
         <>
           <motion.div
             animate={{opacity: 1}}
-            className="absolute inset-0 z-40 bg-slate-950/40 backdrop-blur-sm"
+            className="absolute inset-2 z-40 rounded-2xl bg-slate-950/40 backdrop-blur-sm sm:inset-3"
             exit={{opacity: 0}}
             initial={{opacity: 0}}
             onClick={onClose}
           />
           <motion.div
             animate={{y: 0}}
-            className="absolute bottom-0 left-0 right-0 z-50 flex h-[84vh] flex-col rounded-t-[2rem] bg-white shadow-2xl"
+            className="absolute bottom-2 left-2 right-2 z-50 flex max-h-[min(84dvh,calc(100%-1rem))] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:bottom-3 sm:left-3 sm:right-3"
             exit={{y: '100%'}}
             initial={{y: '100%'}}
             transition={{type: 'spring', damping: 28, stiffness: 300}}

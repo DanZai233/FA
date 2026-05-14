@@ -76,6 +76,27 @@ struct APIService {
         try await request("/api/v1/partners/messages", method: "POST", body: ["phrase": phrase, "scene": "partner"])
     }
 
+    func partnerShareRequests() async throws -> PartnerShareWire {
+        try await request("/api/v1/partners/share-requests")
+    }
+
+    func createPartnerShareRequest(_ body: CreatePartnerShareBody) async throws -> PartnerShareRequest {
+        try await request("/api/v1/partners/share-requests", method: "POST", body: body)
+    }
+
+    func acceptPartnerShareRequest(id: String, receiverRating: Int) async throws -> AcceptPartnerShareResponse {
+        try await request("/api/v1/partners/share-requests/\(id)/accept", method: "POST", body: AcceptPartnerSharePayload(receiverRating: receiverRating))
+    }
+
+    func rejectPartnerShareRequest(id: String, phrase: String) async throws -> PartnerShareRequest {
+        try await request("/api/v1/partners/share-requests/\(id)/reject", method: "POST", body: RejectPartnerSharePayload(phrase: phrase))
+    }
+
+    func partnerShareRejectPhrases() async throws -> [ShareRejectPhrase] {
+        let payload: PartnerSharePhrasesPayload = try await request("/api/v1/partners/share-reject-phrases")
+        return payload.phrases
+    }
+
     func resonatePost(id: String) async throws -> SocialPost {
         try await request("/api/v1/social/posts/\(id)/resonate", method: "POST", body: [String: String]())
     }

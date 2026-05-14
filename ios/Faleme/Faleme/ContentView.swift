@@ -227,14 +227,16 @@ private struct HomeView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
-                    if ComfortCopy.enabled {
-                        ComfortBanner(text: ComfortCopy.line())
-                    }
-                    HomeHeroView(theme: theme, records: store.records) {
+                    HomeHeroView(
+                        theme: theme,
+                        records: store.records,
+                        homeEcho: store.homeEcho,
+                        onDismissEcho: { store.dismissHomeEcho() }
+                    ) {
+                        store.bumpAndPrepareRecordSheetBanter()
                         isAdding = true
                     }
 
-                    SafetyChecklistCard(records: store.records)
                     HomeAdviceReminderCard(prediction: store.prediction, reminder: store.reminder)
 
                     Card(title: "最近记录") {
@@ -266,6 +268,8 @@ private struct HomeView: View {
 private struct HomeHeroView: View {
     let theme: RoleTheme
     let records: [IntimacyRecord]
+    var homeEcho: String?
+    var onDismissEcho: () -> Void
     var onTap: () -> Void
 
     var body: some View {
@@ -323,6 +327,21 @@ private struct HomeHeroView: View {
                 HeroStatPill(label: "最近", value: latestShortDate(records))
             }
             .frame(maxWidth: .infinity)
+
+            if let echo = homeEcho, !echo.isEmpty {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(echo)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.95))
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("知道了", action: onDismissEcho)
+                        .font(.caption.weight(.heavy))
+                        .foregroundStyle(.white.opacity(0.65))
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(.white.opacity(0.14), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.horizontal, 16)
@@ -471,10 +490,6 @@ private struct HomeAdviceReminderCard: View {
                 Text(reminder.title)
                     .font(.caption.bold())
                     .foregroundStyle(.secondary)
-                Text(reminder.body)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8) {
                     MetricPill(label: "总记录", value: "\(reminder.recordCount) 条")
                     MetricPill(label: "安全率", value: "\(reminder.safeRate)%")
@@ -514,14 +529,42 @@ private struct AddRecordView: View {
 
     private let choiceColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
+    private var partnerLinked: Bool {
+        store.partnerLink?.status == "linked"
+    }
+
+    private var shareMode: Bool {
+        partnerLinked && sharedWithPartner
+    }
+
     var body: some View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
+                    if let banter = store.recordSheetBanter, !banter.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("安全员插播")
+                                .font(.caption2.weight(.heavy))
+                                .foregroundStyle(Color.orange.opacity(0.85))
+                                .textCase(.uppercase)
+                            Text(banter)
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.orange.opacity(scheme == .dark ? 0.14 : 0.10), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .strokeBorder(Color.orange.opacity(0.35), lineWidth: 1)
+                        )
+                    }
+
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("快速记下这一笔")
+                        Text(shareMode ? "发起法法同步" : "快速记下这一笔")
                             .font(.title3.bold())
-                        Text("选对类型与保护方式，火苗评分点一点就好。")
+                        Text(shareMode ? "对方在伴侣页收件箱确认后，双方才会各有一条记录。" : "选对类型与保护，火苗评分点一点。")
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -580,12 +623,20 @@ private struct AddRecordView: View {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text("共享给已绑定伴侣")
                                         .font(.subheadline.bold())
-                                    Text("仅在账户已绑定时同步对方可见摘要")
+                                    Text(partnerLinked ? "走同步申请，对方确认后双方各一条" : "需先完成伴侣绑定")
                                         .font(.caption2)
                                         .foregroundStyle(.secondary)
                                 }
                             }
                             .tint(Color.rose)
+                            .disabled(!partnerLinked && !sharedWithPartner)
+
+                            if !partnerLinked {
+                                Text("绑定伴侣后，才能发起法法同步申请。")
+                                    .font(.caption2)
+                                    .foregroundStyle(.orange)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
 
                             Text("不舒服随时停止；不同意或未清醒时不要记录为已同意。")
                                 .font(.caption2)
@@ -624,7 +675,7 @@ private struct AddRecordView: View {
                             dismiss()
                         }
                     } label: {
-                        Text("保存记录")
+                        Label(shareMode ? "发送同步申请" : "保存记录", systemImage: shareMode ? "paperplane.fill" : "checkmark.circle.fill")
                             .font(.headline.bold())
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 16)
@@ -640,6 +691,9 @@ private struct AddRecordView: View {
             }
         }
         .background(GlassRootBackground())
+        .onDisappear {
+            store.clearRecordSheetBanter()
+        }
     }
 
     private var flameCaption: String {
@@ -994,11 +1048,150 @@ private func calendarDays(records: [IntimacyRecord]) -> [CalendarDay] {
     return days
 }
 
+private enum PartnerShareSheet: Identifiable {
+    case accept(PartnerShareRequest)
+    case reject(PartnerShareRequest)
+
+    var id: String {
+        switch self {
+        case .accept(let r): return "a-\(r.id)"
+        case .reject(let r): return "r-\(r.id)"
+        }
+    }
+}
+
+private struct AcceptPartnerShareSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let request: PartnerShareRequest
+    @State private var rating = 4
+
+    var body: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 18) {
+                Text("待确认 · \(request.occurredAt)")
+                    .font(.headline.bold())
+                Text("\(request.type.title) · \(request.protection.title) · Ta \(request.senderRating)/5")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Text("你的评分会写进你这条同步记录。")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                FlameRatingRow(rating: $rating)
+                Spacer(minLength: 0)
+                Button {
+                    Task {
+                        await store.acceptPartnerShare(id: request.id, receiverRating: rating)
+                        FalemeHaptics.success()
+                        dismiss()
+                    }
+                } label: {
+                    Text("确认接受")
+                        .font(.headline.bold())
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.rose)
+            }
+            .padding(20)
+            .navigationTitle("接受同步")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
+private struct RejectPartnerShareSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    let request: PartnerShareRequest
+    let presets: [ShareRejectPhrase]
+    @State private var draft = ""
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("婉拒后不会留下共同记录，对方会收到一条留言。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(presets) { p in
+                                Button {
+                                    var parts: [String] = []
+                                    if let e = p.emoji, !e.isEmpty { parts.append(e) }
+                                    parts.append(p.text)
+                                    let line = parts.joined(separator: " ")
+                                    draft = String(Array(line).prefix(240))
+                                    FalemeHaptics.light()
+                                } label: {
+                                    Text("\(p.emoji.map { "\($0) " } ?? "")\(p.text)".trimmingCharacters(in: .whitespacesAndNewlines))
+                                        .font(.caption.bold())
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.leading)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(.thinMaterial, in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    TextField("补充一句（可选 emoji）", text: $draft, axis: .vertical)
+                        .lineLimit(3...6)
+                        .padding(12)
+                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    Text("\(Array(draft).count)/240")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                    Button {
+                        let t = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        guard !t.isEmpty else { return }
+                        Task {
+                            await store.rejectPartnerShare(id: request.id, phrase: String(Array(t).prefix(240)))
+                            FalemeHaptics.success()
+                            dismiss()
+                        }
+                    } label: {
+                        Text("发送婉拒")
+                            .font(.headline.bold())
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color.rose)
+                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .padding(20)
+            }
+            .navigationTitle("婉拒同步")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+}
+
 private struct PartnerView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.colorScheme) private var scheme
     @State private var phrase = randomPhrase()
     @State private var inviteInput = ""
+    @State private var shareSheet: PartnerShareSheet?
+    @State private var moreBindOpen = false
+    @State private var moreChatOpen = true
 
     var body: some View {
         let status = store.partnerLink?.status ?? "none"
@@ -1006,7 +1199,12 @@ private struct PartnerView: View {
         let inviteCode = store.partnerLink?.inviteCode ?? "FALV1"
         ScrollView {
             VStack(spacing: 16) {
-                PageHeader(title: "伴侣绑定", subtitle: "两个人的事，权限也要两个人确认。")
+                PageHeader(title: "伴侣", subtitle: isLinked ? "同步申请 · 绑定 · 留言" : "生成邀请码，对方确认后绑定。")
+
+                if isLinked {
+                    partnerSyncSection
+                }
+
                 GlassHeroSurface {
                     VStack(alignment: .leading, spacing: 18) {
                         HStack(alignment: .top, spacing: 12) {
@@ -1014,11 +1212,10 @@ private struct PartnerView: View {
                                 Text("partner link")
                                     .font(.caption.bold())
                                     .foregroundStyle(scheme == .dark ? .white.opacity(0.45) : .secondary)
-                                Text(isLinked ? "已绑定心动搭子" : "等待绑定搭子")
+                                Text(isLinked ? "已绑定" : "待绑定")
                                     .font(.title2.bold())
                                     .foregroundStyle(scheme == .dark ? .white : .primary)
-                                    .fixedSize(horizontal: false, vertical: true)
-                                Text(isLinked ? "共享不是偷看，所有记录都要逐项授权。" : "把邀请码交给对方，双方确认后再进入同步模式。")
+                                Text(isLinked ? "记录页勾选共享会走「同步申请」。" : "把邀请码发给对方。")
                                     .font(.subheadline)
                                     .foregroundStyle(scheme == .dark ? .white.opacity(0.68) : .secondary)
                                     .fixedSize(horizontal: false, vertical: true)
@@ -1039,8 +1236,8 @@ private struct PartnerView: View {
                                 .font(.caption.bold())
                                 .foregroundStyle(.secondary)
                             HStack(alignment: .center, spacing: 8) {
-                                Text(inviteCode)
-                                    .font(.system(size: 26, weight: .black, design: .monospaced))
+                                Text(isLinked ? "——" : inviteCode)
+                                    .font(.system(size: isLinked ? 22 : 26, weight: .black, design: .monospaced))
                                     .foregroundStyle(.primary)
                                     .tracking(2)
                                     .lineLimit(1)
@@ -1061,10 +1258,12 @@ private struct PartnerView: View {
                             RoundedRectangle(cornerRadius: 24, style: .continuous)
                                 .strokeBorder(Color.white.opacity(scheme == .dark ? 0.14 : 0.38), lineWidth: 1)
                         )
-                        HStack(spacing: 6) {
-                            stepPill("生成邀请码")
-                            stepPill("对方确认")
-                            stepPill("逐项共享")
+                        if !isLinked {
+                            HStack(spacing: 6) {
+                                stepPill("生成")
+                                stepPill("确认")
+                                stepPill("共享")
+                            }
                         }
                         Button(isLinked ? "解除绑定" : "生成并复制邀请码") {
                             FalemeHaptics.light()
@@ -1078,64 +1277,71 @@ private struct PartnerView: View {
                         .foregroundStyle(.black)
                     }
                 }
-                Card(title: "共享权限") {
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 2), spacing: 10) {
-                        PermissionTile(active: isLinked, title: "共享最近记录", detail: "只同步主动勾选的记录")
-                        PermissionTile(active: false, title: "周期提醒", detail: "默认关闭，避免越界关心")
-                        PermissionTile(active: isLinked, title: "留言箱", detail: "只允许预设短句")
-                        PermissionTile(active: false, title: "位置通讯录", detail: "不采集，也不需要")
-                    }
-                }
-                Card(title: "接受对方邀请") {
-                    TextField("输入邀请码，例如 FALV1", text: $inviteInput)
-                        .textInputAutocapitalization(.characters)
-                        .font(.system(.headline, design: .monospaced))
-                        .padding()
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .strokeBorder(Color.white.opacity(scheme == .dark ? 0.12 : 0.35), lineWidth: 1)
-                        )
-                    Button("接受邀请并绑定") {
-                        Task { await store.acceptPartnerInvite(inviteCode: inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.black)
-                    .disabled(inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                }
-                Card(title: "给伴侣发一句") {
-                    Text(phrase)
-                        .font(.headline)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("随机换一句") {
-                        FalemeHaptics.light()
-                        phrase = randomPhrase()
-                    }
-                    .buttonStyle(.bordered)
-                    Button("发送预设留言") {
-                        FalemeHaptics.light()
-                        Task { await store.sendPartnerMessage(phrase: phrase) }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.rose)
-                }
-                Card(title: "伴侣留言箱") {
-                    ForEach(store.partnerMessages) { message in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(partnerDisplayName(message.authorNickname))
-                                .font(.caption.bold())
-                                .foregroundStyle(.primary)
-                            Text(message.createdAt)
-                                .font(.caption.bold())
-                                .foregroundStyle(.secondary)
-                            Text(message.phrase)
-                                .font(.subheadline.bold())
-                                .fixedSize(horizontal: false, vertical: true)
+
+                DisclosureGroup(isExpanded: $moreBindOpen) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        TextField("对方邀请码", text: $inviteInput)
+                            .textInputAutocapitalization(.characters)
+                            .font(.system(.headline, design: .monospaced))
+                            .padding()
+                            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        Button("接受并绑定") {
+                            Task { await store.acceptPartnerInvite(inviteCode: inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()) }
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 6)
+                        .buttonStyle(.borderedProminent)
+                        .tint(.black)
+                        .disabled(inviteInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     }
+                    .padding(.top, 6)
+                } label: {
+                    Label("绑定与邀请码", systemImage: "link")
+                        .font(.subheadline.bold())
                 }
+                .tint(Color.rose)
+
+                DisclosureGroup(isExpanded: $moreChatOpen) {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(phrase)
+                            .font(.subheadline.bold())
+                            .fixedSize(horizontal: false, vertical: true)
+                        HStack(spacing: 10) {
+                            Button("换一句") {
+                                FalemeHaptics.light()
+                                phrase = randomPhrase()
+                            }
+                            .buttonStyle(.bordered)
+                            Button("发送") {
+                                FalemeHaptics.light()
+                                Task { await store.sendPartnerMessage(phrase: phrase) }
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Color.rose)
+                        }
+                        Divider().opacity(0.25)
+                        if store.partnerMessages.isEmpty {
+                            Text("暂无留言")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            ForEach(store.partnerMessages) { message in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(partnerDisplayName(message.authorNickname))
+                                        .font(.caption2.bold())
+                                    Text(message.phrase)
+                                        .font(.subheadline.bold())
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.vertical, 4)
+                            }
+                        }
+                    }
+                    .padding(.top, 6)
+                } label: {
+                    Label("留言箱", systemImage: "bubble.left.and.bubble.right.fill")
+                        .font(.subheadline.bold())
+                }
+                .tint(Color.rose)
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 16)
@@ -1145,6 +1351,102 @@ private struct PartnerView: View {
             await store.load()
         }
         .falemeScreenChrome()
+        .sheet(item: $shareSheet) { sheet in
+            switch sheet {
+            case .accept(let req):
+                AcceptPartnerShareSheet(request: req)
+                    .environmentObject(store)
+            case .reject(let req):
+                RejectPartnerShareSheet(request: req, presets: store.shareRejectPhrases)
+                    .environmentObject(store)
+            }
+        }
+        .onAppear {
+            moreBindOpen = !isLinked
+            moreChatOpen = isLinked
+        }
+        .onChange(of: isLinked) { _, linked in
+            moreBindOpen = !linked
+            moreChatOpen = linked
+        }
+    }
+
+    @ViewBuilder
+    private var partnerSyncSection: some View {
+        Card(title: "法法同步") {
+            if store.partnerShareInbox.isEmpty && store.partnerShareOutbox.isEmpty {
+                Text("暂无申请。在记录里勾选「共享给伴侣」会出现在这里。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(store.partnerShareInbox) { req in
+                VStack(alignment: .leading, spacing: 10) {
+                    HStack {
+                        Text("待你确认")
+                            .font(.caption2.weight(.heavy))
+                            .foregroundStyle(Color.rose)
+                        Spacer()
+                        Text(req.occurredAt)
+                            .font(.caption.bold())
+                            .foregroundStyle(.secondary)
+                    }
+                    Text("\(req.type.title) · \(req.protection.title) · Ta \(req.senderRating)/5")
+                        .font(.caption.bold())
+                    Text(FalemeQuips.partnerInboxHint(senderRole: req.senderRole ?? .switch))
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 10) {
+                        Button("接受") { shareSheet = .accept(req) }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Color.rose)
+                        Button("拒绝") { shareSheet = .reject(req) }
+                            .buttonStyle(.bordered)
+                    }
+                }
+                .padding(.vertical, 8)
+                Divider().opacity(0.2)
+            }
+            if !store.partnerShareOutbox.isEmpty {
+                Text("我发出的")
+                    .font(.caption2.weight(.heavy))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 4)
+                ForEach(store.partnerShareOutbox) { req in
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(req.occurredAt).font(.caption.bold())
+                            Spacer()
+                            Text(outboxStatus(req.status))
+                                .font(.caption2.weight(.heavy))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("\(req.type.title) · 我 \(req.senderRating)/5")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text(FalemeQuips.partnerOutboxHint(mySenderRole: req.senderRole ?? .switch))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        if req.status == "rejected", let p = req.rejectionPhrase, !p.isEmpty {
+                            Text("Ta：\(p)")
+                                .font(.caption2)
+                                .foregroundStyle(Color.rose.opacity(0.9))
+                        }
+                    }
+                    .padding(.vertical, 6)
+                }
+            }
+        }
+    }
+
+    private func outboxStatus(_ s: String) -> String {
+        switch s {
+        case "pending": return "等待对方"
+        case "accepted": return "已同步"
+        case "rejected": return "已婉拒"
+        default: return s
+        }
     }
 
     private func partnerDisplayName(_ raw: String?) -> String {
@@ -1167,49 +1469,6 @@ private struct PartnerView: View {
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .strokeBorder(Color.white.opacity(scheme == .dark ? 0.14 : 0.32), lineWidth: 1)
             )
-    }
-}
-
-private struct PermissionTile: View {
-    let active: Bool
-    let title: String
-    let detail: String
-    @Environment(\.colorScheme) private var scheme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Image(systemName: active ? "checkmark.seal.fill" : "lock.fill")
-                .foregroundStyle(active ? Color.rose : .secondary)
-                .frame(width: 34, height: 34)
-                .background(active ? Color.rose.opacity(0.12) : Color.clear, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            Text(title)
-                .font(.caption.bold())
-            Text(detail)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .lineLimit(4)
-                .minimumScaleFactor(0.85)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(12)
-        .background {
-            ZStack {
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(.thinMaterial)
-                if active {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.rose.opacity(0.08))
-                }
-            }
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(
-                    active ? Color.rose.opacity(0.35) : Color.primary.opacity(scheme == .dark ? 0.14 : 0.10),
-                    lineWidth: active ? 1.5 : 1
-                )
-        )
     }
 }
 

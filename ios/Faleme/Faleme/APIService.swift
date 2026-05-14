@@ -1,7 +1,7 @@
 import Foundation
 
 struct APIService {
-    var baseURL = URL(string: "http://localhost:8083")!
+    var baseURL = URL(string: "http://fa.danzaii.cn:8083")!
     var deviceID = DeviceIdentity.current
 
     func me() async throws -> UserProfile {

@@ -443,6 +443,10 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "phrase too long")
 		return
 	}
+	if !IsValidPresetSquarePhrase(phrase) {
+		writeError(w, http.StatusBadRequest, "only preset square phrases allowed")
+		return
+	}
 	ip := ClientIP(r)
 	label := PostIPRegionLabel(s.geo, ip)
 	writeJSON(w, http.StatusCreated, s.store.AddPost(currentUser(r).ID, phrase, label))

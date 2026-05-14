@@ -50,6 +50,7 @@ export const defaultAdvice: HealthAdvice = {
 };
 
 export const phraseBook = {
+  /** 广场发帖词库；服务端校验见 server/internal/app/square_preset.go，修改时请同步 */
   tones: [
     '今晚月色不错',
     '理智正在下线',

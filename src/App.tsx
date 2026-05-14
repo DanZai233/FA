@@ -11,7 +11,6 @@ import {
   Lock,
   MessageCircle,
   MoreHorizontal,
-  PenLine,
   RefreshCw,
   ShieldCheck,
   Siren,
@@ -57,6 +56,7 @@ import {getOfflinePending, setOfflinePending} from './lib/offlinePending';
 import {bumpRejectPresetStat, topRejectPresetId} from './lib/rejectPresetStats';
 import {buildYearReviewHtml} from './lib/yearReviewHtml';
 import {buildStats, buildTags, calculateRisk, predictCycle} from './lib/cyclePrediction';
+import {isValidPresetSquarePhrase} from './lib/squarePresetPhrase';
 import {
   normalizeRelationshipMode,
   partnerStatusFromHub,
@@ -606,6 +606,10 @@ function MobileApp() {
   const publishPhrase = (phrase: string) => {
     const clipped = Array.from(phrase.trim()).slice(0, 320).join('');
     if (!clipped) return;
+    if (!isValidPresetSquarePhrase(clipped)) {
+      setNetworkToast('广场仅支持预设拼句，请使用「拼句」里的四段模板发布。');
+      return;
+    }
     const optimisticPost: SocialPost = {
       id: `p-${Date.now()}`,
       authorAlias: profile.squareAlias?.trim() || '匿名成年人',
@@ -1774,14 +1778,12 @@ function SquareView({
   onReport: (id: string) => void;
   onBlock: (id: string) => void;
 }) {
-  type SquareSheet = 'write' | 'compose' | 'more' | null;
+  type SquareSheet = 'compose' | 'more' | null;
   const [sheet, setSheet] = useState<SquareSheet>(null);
-  const [draft, setDraft] = useState('');
   const [menuPostId, setMenuPostId] = useState<string | null>(null);
   const [resonatePickFor, setResonatePickFor] = useState<string | null>(null);
   const [match, setMatch] = useState<MatchCard | null>(matchSeed);
   const totalResonance = useMemo(() => posts.reduce((sum, post) => sum + post.resonanceCount, 0), [posts]);
-  const maxChars = 320;
 
   useEffect(() => {
     if (!menuPostId) return;
@@ -1804,23 +1806,13 @@ function SquareView({
 
   const closeSheet = () => {
     setSheet(null);
-    setDraft('');
   };
-
-  const submitWrite = () => {
-    const clipped = Array.from(draft.trim()).slice(0, maxChars).join('');
-    if (!clipped) return;
-    onPublish(clipped);
-    closeSheet();
-  };
-
-  const draftRunes = [...draft].length;
 
   return (
     <>
       <section className="space-y-3 p-5 pt-6 pb-32">
         {posts.length === 0 ? (
-          <p className="py-20 text-center text-sm text-slate-400">还没有留言。点下面写一句，或从预设拼一句。</p>
+          <p className="py-20 text-center text-sm text-slate-400">还没有留言。点下面「拼句」用预设模板发布一条。</p>
         ) : (
           posts.map((post) => (
             <article
@@ -1942,23 +1934,12 @@ function SquareView({
             type="button"
             onClick={() => {
               setMenuPostId(null);
-              setSheet('write');
-            }}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-black text-slate-800 hover:bg-slate-50"
-          >
-            <PenLine size={16} />
-            写一句
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMenuPostId(null);
               setSheet('compose');
             }}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-black text-slate-800 hover:bg-slate-50"
+            className="flex flex-[2] items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-black text-slate-800 hover:bg-slate-50"
           >
             <Sparkles size={16} />
-            拼句
+            拼句发布
           </button>
           <button
             type="button"
@@ -1995,35 +1976,12 @@ function SquareView({
             >
               <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200" />
               <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] pt-4">
-                {sheet === 'write' && (
-                  <div className="space-y-3">
-                    <h2 className="text-lg font-black text-slate-900">写一句</h2>
-                    <p className="text-xs font-semibold text-slate-500">系统键盘可输入 emoji。轻量发言，最多 {maxChars} 字。</p>
-                    <textarea
-                      value={draft}
-                      onChange={(e) => setDraft(Array.from(e.target.value).slice(0, maxChars).join(''))}
-                      rows={5}
-                      placeholder="今天想留一句…"
-                      className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-[15px] font-semibold leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-100"
-                    />
-                    <div className="flex items-center justify-between text-xs font-bold text-slate-400">
-                      <span>
-                        {draftRunes}/{maxChars}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={submitWrite}
-                        disabled={!draft.trim()}
-                        className="rounded-full bg-rose-500 px-5 py-2 text-xs font-black text-white disabled:opacity-40"
-                      >
-                        发布
-                      </button>
-                    </div>
-                  </div>
-                )}
                 {sheet === 'compose' && (
                   <div className="space-y-2">
                     <h2 className="text-lg font-black text-slate-900">预设拼句</h2>
+                    <p className="text-xs font-semibold text-slate-500">
+                      广场已关闭自由输入，仅允许从词库拼句发布，降低内容与治理风险。
+                    </p>
                     <PhraseComposer
                       variant="plain"
                       onPublish={(phrase) => {

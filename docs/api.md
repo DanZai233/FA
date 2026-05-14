@@ -39,7 +39,13 @@
 - `POST /api/v1/partners/accept`
 - `DELETE /api/v1/partners`
 - `GET /api/v1/partners/messages` — 每条含 `authorNickname`（发送时的用户名），伴侣留言箱展示用
-- `POST /api/v1/partners/messages`
+- `POST /api/v1/partners/messages` — body：`phrase`, `scene`（可省略，默认 `partner`）
+- **法法同步申请（收件箱）**
+  - `GET /api/v1/partners/share-requests` — 返回 `{ inbox, outbox }`。`inbox`：发给当前用户且 `status=pending`；`outbox`：当前用户发起的全部状态。
+  - `POST /api/v1/partners/share-requests` — 创建申请（需已绑定伴侣）。body：`occurredAt?`, `type`, `protection`, `consentChecked`, `senderRating`, `senderRole`。接受前**不会**写入 `records`。
+  - `POST /api/v1/partners/share-requests/:id/accept` — 仅接收方可接受。body：`receiverRating`（1–5，可省略则服务端按默认处理）。成功后为**双方**各写入一条 `sharedWithPartner: true` 的亲密记录；响应 `{ shareRequest, record }` 中 `record` 为当前用户那条。
+  - `POST /api/v1/partners/share-requests/:id/reject` — 仅接收方可拒绝。body：`phrase`（trim 后非空，rune 长度 ≤240）。标记 `rejected`，并向**发起方**收件箱写入一条 `scene: share_reject` 的伴侣消息（前缀「婉拒了这次法法同步：」+ `phrase`）；**双方都不会**因该申请产生亲密记录。
+  - `GET /api/v1/partners/share-reject-phrases` — 返回 `{ phrases: [{ id, text, emoji? }] }`，供拒绝时选预设（可与 emoji、补充文案组合后作为 `phrase` 提交）。
 
 ## 知识与短语
 

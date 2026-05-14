@@ -1,4 +1,5 @@
 import type {
+  CreatePartnerShareBody,
   CyclePrediction,
   CycleRecord,
   DataExport,
@@ -7,8 +8,11 @@ import type {
   MatchCard,
   PartnerLinkWire,
   PartnerMessage,
+  PartnerShareRequest,
+  PartnerShareRequestsWire,
   PhraseTemplate,
   ReminderSummary,
+  ShareRejectPhraseOption,
   SocialPost,
   UserProfile,
 } from '../types/domain';
@@ -150,6 +154,27 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({phrase, scene: 'partner'}),
     }),
+  partnerShareRequests: () => request<PartnerShareRequestsWire>('/api/v1/partners/share-requests'),
+  createPartnerShareRequest: (body: CreatePartnerShareBody) =>
+    request<PartnerShareRequest>('/api/v1/partners/share-requests', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  acceptPartnerShareRequest: (id: string, body: {receiverRating: number}) =>
+    request<{shareRequest: PartnerShareRequest; record: IntimacyRecord | null}>(
+      `/api/v1/partners/share-requests/${id}/accept`,
+      {
+        method: 'POST',
+        body: JSON.stringify(body),
+      },
+    ),
+  rejectPartnerShareRequest: (id: string, body: {phrase: string}) =>
+    request<PartnerShareRequest>(`/api/v1/partners/share-requests/${id}/reject`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  partnerShareRejectPhrases: () =>
+    request<{phrases: ShareRejectPhraseOption[]}>('/api/v1/partners/share-reject-phrases'),
   knowledgeCards: () => request<KnowledgeCard[]>('/api/v1/knowledge/cards'),
   phrases: () => request<PhraseTemplate[]>('/api/v1/phrases'),
   compose: (payload: {tone: string; subject: string; action: string; ending: string}) =>

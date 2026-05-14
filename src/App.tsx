@@ -13,6 +13,7 @@ import {
   MoreHorizontal,
   PenLine,
   RefreshCw,
+  Send,
   ShieldCheck,
   Siren,
   Sparkles,
@@ -30,6 +31,14 @@ import {
   riskTone,
   roleLabels,
 } from './design/copy';
+import {
+  bumpTodayHeroFabClick,
+  getAfterSaveBanter,
+  getHeroFabBanter,
+  getPartnerShareAfterSendBanter,
+  getPartnerShareInboxBanter,
+  getPartnerShareOutboxBanter,
+} from './design/faleQuips';
 import {api, getAuthToken, setAuthToken} from './api/client';
 import {AuthScreen} from './AuthScreen';
 import type {
@@ -42,11 +51,14 @@ import type {
   MatchCard,
   PartnerLinkWire,
   PartnerMessage,
+  PartnerShareRequest,
+  PartnerShareRequestsWire,
   PartnerLinkStatus,
   PhraseSlot,
   ProtectionMethod,
   ReminderSummary,
   RiskLevel,
+  ShareRejectPhraseOption,
   SocialPost,
   UserProfile,
   UserRole,
@@ -262,8 +274,12 @@ function MobileApp() {
   const [cycle, setCycle] = useState<CycleRecord>(seedCycle);
   const [posts, setPosts] = useState<SocialPost[]>(socialSeed);
   const [partnerMessages, setPartnerMessages] = useState<PartnerMessage[]>(seedMessages);
+  const [shareWire, setShareWire] = useState<PartnerShareRequestsWire>({inbox: [], outbox: []});
+  const [shareRejectPresets, setShareRejectPresets] = useState<ShareRejectPhraseOption[]>([]);
   const [summary, setSummary] = useState<ReminderSummary | null>(null);
   const [recordSheetOpen, setRecordSheetOpen] = useState(false);
+  const [recordBanter, setRecordBanter] = useState<string | null>(null);
+  const [homeEcho, setHomeEcho] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<'connected' | 'offline-demo'>('offline-demo');
 
   useEffect(() => {
@@ -284,6 +300,23 @@ function MobileApp() {
   const prediction = remotePrediction ?? localPrediction;
   const stats = useMemo(() => buildStats(records), [records]);
 
+  const syncRemotePartnerExtras = () => {
+    Promise.all([api.records(), api.partnerMessages(), api.partnerShareRequests(), api.partner()])
+      .then(([nextRecords, nextMessages, nextShares, nextPartner]) => {
+        setRecords(Array.isArray(nextRecords) ? nextRecords : []);
+        setPartnerMessages(Array.isArray(nextMessages) ? nextMessages : []);
+        setShareWire(
+          nextShares && typeof nextShares === 'object'
+            ? {inbox: nextShares.inbox ?? [], outbox: nextShares.outbox ?? []}
+            : {inbox: [], outbox: []},
+        );
+        setPartnerLink(nextPartner);
+        setProfile((p) => ({...p, partnerStatus: nextPartner.status}));
+        setApiStatus('connected');
+      })
+      .catch(() => setApiStatus('offline-demo'));
+  };
+
   useEffect(() => {
     if (authPhase !== 'in') {
       return;
@@ -298,8 +331,22 @@ function MobileApp() {
       api.partnerMessages(),
       api.partner(),
       api.reminderSummary(),
+      api.partnerShareRequests(),
+      api.partnerShareRejectPhrases().catch(() => ({phrases: [] as ShareRejectPhraseOption[]})),
     ])
-      .then(([nextProfile, nextRecords, nextCycles, nextPosts, nextPrediction, nextMessages, nextPartner, nextSummary]) => {
+      .then(
+        ([
+          nextProfile,
+          nextRecords,
+          nextCycles,
+          nextPosts,
+          nextPrediction,
+          nextMessages,
+          nextPartner,
+          nextSummary,
+          nextShares,
+          rejectPack,
+        ]) => {
         if (ignore) {
           return;
         }
@@ -317,6 +364,12 @@ function MobileApp() {
         setPosts(Array.isArray(nextPosts) ? nextPosts : []);
         setRemotePrediction(nextPrediction);
         setPartnerMessages(Array.isArray(nextMessages) ? nextMessages : []);
+        setShareWire(
+          nextShares && typeof nextShares === 'object'
+            ? {inbox: nextShares.inbox ?? [], outbox: nextShares.outbox ?? []}
+            : {inbox: [], outbox: []},
+        );
+        setShareRejectPresets(Array.isArray(rejectPack.phrases) ? rejectPack.phrases : []);
         setSummary(nextSummary);
         setApiStatus('connected');
       })
@@ -329,6 +382,14 @@ function MobileApp() {
       ignore = true;
     };
   }, [authPhase]);
+
+  useEffect(() => {
+    if (!homeEcho) {
+      return;
+    }
+    const timer = window.setTimeout(() => setHomeEcho(null), 8000);
+    return () => window.clearTimeout(timer);
+  }, [homeEcho]);
 
   if (offlineMode) {
     return <OfflineModeView onExit={() => {
@@ -360,6 +421,30 @@ function MobileApp() {
   }
 
   const saveRecord = (draft: RecordDraft) => {
+    const partnerLinked = partnerLink?.status === 'linked';
+    const useShareFlow = Boolean(draft.sharedWithPartner && partnerLinked);
+
+    if (useShareFlow) {
+      const body = {
+        occurredAt: isoDate(new Date()),
+        type: draft.type,
+        protection: draft.protection,
+        consentChecked: draft.consentChecked,
+        senderRating: draft.rating,
+        senderRole: profile.role,
+      };
+      api
+        .createPartnerShareRequest(body)
+        .then(() => {
+          setApiStatus('connected');
+          setHomeEcho(getPartnerShareAfterSendBanter(profile.role));
+          syncRemotePartnerExtras();
+        })
+        .catch(() => setApiStatus('offline-demo'));
+      setRecordSheetOpen(false);
+      return;
+    }
+
     const riskLevel = calculateRisk(draft.protection, draft.type, prediction.todayAdvice.level);
     const optimisticRecord: IntimacyRecord = {
       id: `rec-${Date.now()}`,
@@ -373,6 +458,7 @@ function MobileApp() {
       .then((record) => {
         setRecords((prev) => prev.map((item) => (item.id === optimisticRecord.id ? record : item)));
         setApiStatus('connected');
+        setHomeEcho(getAfterSaveBanter(profile.role, draft.rating));
       })
       .catch(() => setApiStatus('offline-demo'));
     setRecordSheetOpen(false);
@@ -410,7 +496,14 @@ function MobileApp() {
               stats={stats}
               summary={summary}
               role={profile.role}
-              onAddRecord={() => setRecordSheetOpen(true)}
+              homeEcho={homeEcho}
+              onDismissHomeEcho={() => setHomeEcho(null)}
+              onAddRecord={() => {
+                const n = bumpTodayHeroFabClick(profile.id);
+                const latestRating = records[0]?.rating ?? null;
+                setRecordBanter(getHeroFabBanter({role: profile.role, clickCountToday: n, latestRating}));
+                setRecordSheetOpen(true);
+              }}
               onEnterOffline={() => {
                 localStorage.setItem('faleme.offline.enabled', 'true');
                 setOfflineMode(true);
@@ -442,6 +535,8 @@ function MobileApp() {
             <PartnerView
               partner={partnerLink ?? {status: 'none'}}
               messages={partnerMessages}
+              shareWire={shareWire}
+              rejectPhrasePresets={shareRejectPresets}
               onSendMessage={(phrase) => {
                 const optimistic: PartnerMessage = {
                   id: `msg-${Date.now()}`,
@@ -488,6 +583,22 @@ function MobileApp() {
                   setPartnerLink(link);
                   setProfile((p) => ({...p, partnerStatus: link.status}));
                   setApiStatus('connected');
+                } catch {
+                  setApiStatus('offline-demo');
+                }
+              }}
+              onAcceptPartnerShare={async (id, receiverRating) => {
+                try {
+                  await api.acceptPartnerShareRequest(id, {receiverRating});
+                  syncRemotePartnerExtras();
+                } catch {
+                  setApiStatus('offline-demo');
+                }
+              }}
+              onRejectPartnerShare={async (id, phrase) => {
+                try {
+                  await api.rejectPartnerShareRequest(id, {phrase});
+                  syncRemotePartnerExtras();
                 } catch {
                   setApiStatus('offline-demo');
                 }
@@ -605,7 +716,12 @@ function MobileApp() {
         <RecordSheet
           isOpen={recordSheetOpen}
           advice={prediction.todayAdvice}
-          onClose={() => setRecordSheetOpen(false)}
+          partnerLinked={partnerLink?.status === 'linked'}
+          topBanter={recordBanter}
+          onClose={() => {
+            setRecordSheetOpen(false);
+            setRecordBanter(null);
+          }}
           onSave={saveRecord}
         />
       </div>
@@ -619,6 +735,8 @@ function HomeView({
   stats,
   summary,
   role,
+  homeEcho,
+  onDismissHomeEcho,
   onAddRecord,
   onEnterOffline,
   onDeleteRecord,
@@ -628,6 +746,8 @@ function HomeView({
   stats: ReturnType<typeof buildStats>;
   summary: ReminderSummary | null;
   role: UserRole;
+  homeEcho?: string | null;
+  onDismissHomeEcho?: () => void;
   onAddRecord: () => void;
   onEnterOffline: () => void;
   onDeleteRecord: (id: string) => void;
@@ -663,6 +783,18 @@ function HomeView({
           <HeroPill label="本月" value={`${stats.monthCount} 次`} />
           <HeroPill label="最近" value={latest?.occurredAt.slice(5) ?? '暂无'} />
         </div>
+        {homeEcho ? (
+          <div className="relative mt-5 rounded-2xl border border-white/35 bg-white/14 px-4 py-3 text-left shadow-inner backdrop-blur-md">
+            <p className="text-[13px] font-bold leading-relaxed text-white/95">{homeEcho}</p>
+            <button
+              type="button"
+              onClick={() => onDismissHomeEcho?.()}
+              className="mt-2 text-[11px] font-black uppercase tracking-wider text-white/60 underline-offset-2 hover:text-white"
+            >
+              知道了
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <button onClick={onEnterOffline} className="w-full rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-700">
@@ -718,6 +850,8 @@ function OfflineModeView({onExit}: {onExit: () => void}) {
 
   const theme = roleTheme(role);
 
+  const [offlineBanter, setOfflineBanter] = useState<string | null>(null);
+
   const changeRole = (nextRole: UserRole) => {
     setRole(nextRole);
     localStorage.setItem('faleme.offline.role', nextRole);
@@ -766,13 +900,21 @@ function OfflineModeView({onExit}: {onExit: () => void}) {
         </div>
 
         <button
-          onClick={saveOfflineRecord}
+          onClick={() => {
+            const n = bumpTodayHeroFabClick('offline');
+            setOfflineBanter(getHeroFabBanter({role, clickCountToday: n, latestRating: null}));
+            saveOfflineRecord();
+          }}
           className={`mx-auto mt-10 flex h-64 w-64 flex-col items-center justify-center rounded-full bg-gradient-to-tr ${theme.heroBg} text-white shadow-[0_24px_70px_-18px_rgba(244,63,94,0.75)] active:scale-95`}
         >
           {theme.isReceiver ? <Heart size={70} /> : <Flame size={70} />}
           <span className="mt-3 text-4xl font-black">{theme.label}</span>
           <span className="mt-2 text-xs font-bold text-white/75">完全本地，只记这一笔</span>
         </button>
+
+        {offlineBanter ? (
+          <p className="mx-auto mt-4 max-w-sm px-3 text-center text-sm font-bold leading-relaxed text-slate-700">{offlineBanter}</p>
+        ) : null}
 
         <div className="mt-6 grid grid-cols-2 gap-3">
           <MetricCard label="今日" value={`${todayCount}`} suffix="次" icon={<Activity size={18} />} />
@@ -916,24 +1058,39 @@ function CycleView({
 function PartnerView({
   partner,
   messages,
+  shareWire,
+  rejectPhrasePresets,
   onSendMessage,
   onCreateInvite,
   onUnlink,
   onAcceptInvite,
+  onAcceptPartnerShare,
+  onRejectPartnerShare,
 }: {
   partner: PartnerLinkWire;
   messages: PartnerMessage[];
+  shareWire: PartnerShareRequestsWire;
+  rejectPhrasePresets: ShareRejectPhraseOption[];
   onSendMessage: (phrase: string) => void;
   onCreateInvite: () => Promise<void>;
   onUnlink: () => Promise<void>;
   onAcceptInvite: (inviteCode: string) => Promise<void>;
+  onAcceptPartnerShare: (id: string, receiverRating: number) => Promise<void>;
+  onRejectPartnerShare: (id: string, phrase: string) => Promise<void>;
 }) {
   const linked = partner.status === 'linked';
   const pending = partner.status === 'pending';
   const displayCode = (partner.inviteCode ?? '').trim();
   const messageList = messages ?? [];
+  const inbox = shareWire.inbox ?? [];
+  const outbox = shareWire.outbox ?? [];
   const [peerInviteInput, setPeerInviteInput] = useState('');
   const [busy, setBusy] = useState(false);
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareAcceptId, setShareAcceptId] = useState<string | null>(null);
+  const [shareAcceptRating, setShareAcceptRating] = useState(4);
+  const [shareRejectId, setShareRejectId] = useState<string | null>(null);
+  const [shareRejectDraft, setShareRejectDraft] = useState('');
   const [parts, setParts] = useState<Record<PhraseSlot, string>>(() => randomPhraseParts());
   const [partnerShufflePop, setPartnerShufflePop] = useState(0);
   const phrase = `${parts.tone} / ${parts.subject} / ${parts.action} / ${parts.ending}`;
@@ -1024,6 +1181,198 @@ function PartnerView({
           </button>
         </div>
       </Card>
+
+      {linked && (
+        <Card title="法法同步收件箱" action={`${inbox.length ? `${inbox.length} 条待你` : '暂无待办'}`}>
+          <p className="mb-4 text-xs leading-5 text-slate-500">
+            在记录里勾选「共享给已绑定伴侣」会发到这里的申请：对方点「接受」后双方才各有一条同步记录；点「拒绝」会通知发起方，且<strong>不会</strong>留下这条共同记录。
+          </p>
+          {inbox.length === 0 && outbox.length === 0 ? (
+            <p className="py-4 text-center text-sm text-slate-400">还没有法法同步申请。</p>
+          ) : null}
+          <div className="space-y-3">
+            {inbox.map((req) => (
+              <div key={req.id} className="rounded-3xl border border-rose-100 bg-rose-50/40 p-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-black text-rose-500">待你确认</p>
+                    <p className="mt-1 text-sm font-black text-slate-900">{req.occurredAt}</p>
+                    <p className="mt-1 text-xs text-slate-600">
+                      {intimacyTypeLabels[req.type]} · {protectionLabels[req.protection]} · Ta 的评分 {req.senderRating}/5
+                    </p>
+                    <p className="mt-2 text-xs font-semibold leading-relaxed text-violet-900/85">
+                      {getPartnerShareInboxBanter(req.senderRole ?? 'switch')}
+                    </p>
+                  </div>
+                </div>
+                {shareAcceptId === req.id ? (
+                  <div className="mt-4 space-y-3 rounded-2xl bg-white p-3">
+                    <p className="text-xs font-black text-slate-500">你的体验评分（会写入你这条同步记录）</p>
+                    <div className="flex justify-between rounded-2xl bg-slate-50 px-2 py-2">
+                      {[1, 2, 3, 4, 5].map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setShareAcceptRating(n)}
+                          className={n <= shareAcceptRating ? 'text-rose-500' : 'text-slate-300'}
+                        >
+                          <Flame className={n <= shareAcceptRating ? 'fill-rose-500' : ''} size={28} />
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={shareBusy}
+                        onClick={() => {
+                          setShareAcceptId(null);
+                        }}
+                        className="flex-1 rounded-2xl border border-slate-200 bg-white py-2.5 text-xs font-black text-slate-600 disabled:opacity-50"
+                      >
+                        取消
+                      </button>
+                      <button
+                        type="button"
+                        disabled={shareBusy}
+                        onClick={async () => {
+                          setShareBusy(true);
+                          try {
+                            await onAcceptPartnerShare(req.id, shareAcceptRating);
+                            setShareAcceptId(null);
+                          } finally {
+                            setShareBusy(false);
+                          }
+                        }}
+                        className="flex-1 rounded-2xl bg-slate-950 py-2.5 text-xs font-black text-white disabled:opacity-50"
+                      >
+                        确认接受
+                      </button>
+                    </div>
+                  </div>
+                ) : shareRejectId === req.id ? (
+                  <div className="mt-4 space-y-3 rounded-2xl bg-white p-3">
+                    <p className="text-xs font-black text-slate-500">婉拒留言（会发给发起方，可点预设再改）</p>
+                    <div className="flex flex-wrap gap-2">
+                      {rejectPhrasePresets.map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            const line = [preset.emoji, preset.text].filter(Boolean).join(' ').trim();
+                            setShareRejectDraft(Array.from(line).slice(0, 240).join(''));
+                          }}
+                          className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-left text-[11px] font-bold leading-snug text-slate-700 active:bg-slate-100"
+                        >
+                          {preset.emoji ? `${preset.emoji} ` : ''}
+                          {preset.text}
+                        </button>
+                      ))}
+                    </div>
+                    <textarea
+                      value={shareRejectDraft}
+                      onChange={(event) => {
+                        const next = Array.from(event.target.value).slice(0, 240).join('');
+                        setShareRejectDraft(next);
+                      }}
+                      rows={3}
+                      placeholder="选一句或自己写，支持 emoji"
+                      className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800 outline-none focus:border-rose-300"
+                    />
+                    <p className="text-right text-[10px] font-bold text-slate-400">{[...shareRejectDraft].length}/240</p>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        disabled={shareBusy}
+                        onClick={() => {
+                          setShareRejectId(null);
+                          setShareRejectDraft('');
+                        }}
+                        className="flex-1 rounded-2xl border border-slate-200 bg-white py-2.5 text-xs font-black text-slate-600 disabled:opacity-50"
+                      >
+                        返回
+                      </button>
+                      <button
+                        type="button"
+                        disabled={shareBusy}
+                        onClick={async () => {
+                          const trimmed = shareRejectDraft.trim();
+                          if (!trimmed) {
+                            return;
+                          }
+                          setShareBusy(true);
+                          try {
+                            await onRejectPartnerShare(req.id, trimmed);
+                            setShareRejectId(null);
+                            setShareRejectDraft('');
+                          } finally {
+                            setShareBusy(false);
+                          }
+                        }}
+                        className="flex-1 rounded-2xl bg-rose-500 py-2.5 text-xs font-black text-white disabled:opacity-50"
+                      >
+                        发送婉拒
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="mt-3 flex gap-2">
+                    <button
+                      type="button"
+                      disabled={shareBusy}
+                      onClick={() => {
+                        setShareRejectId(null);
+                        setShareRejectDraft('');
+                        setShareAcceptId(req.id);
+                        setShareAcceptRating(4);
+                      }}
+                      className="flex-1 rounded-2xl bg-slate-950 py-2.5 text-xs font-black text-white disabled:opacity-50"
+                    >
+                      接受
+                    </button>
+                    <button
+                      type="button"
+                      disabled={shareBusy}
+                      onClick={() => {
+                        setShareAcceptId(null);
+                        setShareRejectId(req.id);
+                        setShareRejectDraft('');
+                      }}
+                      className="flex-1 rounded-2xl border border-slate-200 bg-white py-2.5 text-xs font-black text-slate-700 disabled:opacity-50"
+                    >
+                      拒绝
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          {outbox.length > 0 ? (
+            <div className="mt-5 space-y-2">
+              <p className="text-xs font-black text-slate-400">我发出的申请</p>
+              {outbox.map((req) => {
+                const statusLabel =
+                  req.status === 'pending' ? '等待对方确认' : req.status === 'accepted' ? '对方已接受' : '对方已婉拒';
+                return (
+                  <div key={req.id} className="rounded-3xl bg-slate-50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-sm font-black text-slate-900">{req.occurredAt}</p>
+                      <span className="rounded-full bg-white px-2.5 py-0.5 text-[10px] font-black text-slate-500">{statusLabel}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {intimacyTypeLabels[req.type]} · 我的评分 {req.senderRating}/5
+                      {typeof req.receiverRating === 'number' ? ` · Ta ${req.receiverRating}/5` : ''}
+                    </p>
+                    <p className="mt-2 text-xs leading-relaxed text-slate-600">{getPartnerShareOutboxBanter(req.senderRole ?? 'switch')}</p>
+                    {req.status === 'rejected' && req.rejectionPhrase ? (
+                      <p className="mt-2 text-xs font-semibold text-rose-600">Ta 的留言：{req.rejectionPhrase}</p>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          ) : null}
+        </Card>
+      )}
 
       <Card title="伴侣守则" action="默认开启">
         <TimelineItem icon={<CheckCircle2 size={18} />} title="明确同意" body="任何一方说停，就停。气氛不是通行证。" />
@@ -1546,11 +1895,15 @@ type RecordDraft = Pick<
 function RecordSheet({
   isOpen,
   advice,
+  partnerLinked,
+  topBanter,
   onClose,
   onSave,
 }: {
   isOpen: boolean;
   advice: HealthAdvice;
+  partnerLinked?: boolean;
+  topBanter?: string | null;
   onClose: () => void;
   onSave: (draft: RecordDraft) => void;
 }) {
@@ -1559,6 +1912,8 @@ function RecordSheet({
   const [rating, setRating] = useState(4);
   const [consentChecked, setConsentChecked] = useState(true);
   const [sharedWithPartner, setSharedWithPartner] = useState(false);
+  const linked = Boolean(partnerLinked);
+  const shareMode = linked && sharedWithPartner;
 
   return (
     <AnimatePresence>
@@ -1591,6 +1946,12 @@ function RecordSheet({
               </button>
             </div>
             <div className="flex-1 space-y-6 overflow-y-auto p-6">
+              {topBanter ? (
+                <div className="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50 to-orange-50/80 px-4 py-3 shadow-sm">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700/80">安全员插播</p>
+                  <p className="mt-1.5 text-sm font-bold leading-relaxed text-amber-950">{topBanter}</p>
+                </div>
+              ) : null}
               <AdviceCard advice={advice} compact />
               <OptionGroup<IntimacyType>
                 label="亲密类型"
@@ -1621,15 +1982,28 @@ function RecordSheet({
                 </div>
               </div>
               <ToggleRow checked={consentChecked} label="双方明确同意" onChange={setConsentChecked} />
-              <ToggleRow checked={sharedWithPartner} label="共享给已绑定伴侣" onChange={setSharedWithPartner} />
+              <ToggleRow
+                checked={sharedWithPartner}
+                label="共享给已绑定伴侣"
+                disabled={!linked && !sharedWithPartner}
+                onChange={setSharedWithPartner}
+              />
+              {!linked ? (
+                <p className="text-xs leading-5 text-amber-700">绑定伴侣后，才能向对方发起「法法同步」申请（对方需在收件箱确认）。</p>
+              ) : null}
+              {linked && sharedWithPartner ? (
+                <p className="text-xs leading-5 text-slate-500">
+                  不会立刻写入双方记录：对方在「伴侣 → 法法同步收件箱」接受后，才会各自生成一条带评分的同步记录。
+                </p>
+              ) : null}
             </div>
             <div className="ios-safe-bottom border-t border-slate-100 bg-white p-6">
               <button
                 onClick={() => onSave({type, protection, rating, consentChecked, sharedWithPartner})}
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 py-4 text-lg font-black text-white active:scale-[0.99]"
               >
-                <CheckCircle2 size={22} />
-                保存记录
+                {shareMode ? <Send size={22} /> : <CheckCircle2 size={22} />}
+                {shareMode ? '发送同步申请' : '保存记录'}
               </button>
             </div>
           </motion.div>
@@ -2015,11 +2389,29 @@ function MenuLink({href, icon, label}: {href: string; icon: React.ReactNode; lab
   );
 }
 
-function ToggleRow({checked, label, onChange}: {checked: boolean; label: string; onChange: (checked: boolean) => void}) {
+function ToggleRow({
+  checked,
+  label,
+  onChange,
+  disabled,
+}: {
+  checked: boolean;
+  label: string;
+  onChange: (checked: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
     <button
-      onClick={() => onChange(!checked)}
-      className="flex w-full items-center justify-between rounded-3xl bg-slate-50 p-4 text-left"
+      type="button"
+      disabled={disabled}
+      onClick={() => {
+        if (!disabled) {
+          onChange(!checked);
+        }
+      }}
+      className={`flex w-full items-center justify-between rounded-3xl bg-slate-50 p-4 text-left ${
+        disabled ? 'cursor-not-allowed opacity-50' : ''
+      }`}
     >
       <span className="text-sm font-black text-slate-800">{label}</span>
       <span className={`h-7 w-12 rounded-full p-1 transition ${checked ? 'bg-rose-500' : 'bg-slate-300'}`}>

@@ -116,6 +116,45 @@ export interface PartnerMessage {
   createdAt: string;
 }
 
+/** 伴侣「法法同步」申请：pending 时双方都不会写入亲密记录；拒绝仅通知发起方。 */
+export interface PartnerShareRequest {
+  id: string;
+  fromUserId: string;
+  toUserId: string;
+  status: 'pending' | 'accepted' | 'rejected';
+  senderRole?: UserRole;
+  occurredAt: string;
+  type: IntimacyType;
+  protection: ProtectionMethod;
+  consentChecked: boolean;
+  senderRating: number;
+  createdAt: string;
+  receiverRating?: number;
+  rejectionPhrase?: string;
+  acceptedAt?: string;
+  rejectedAt?: string;
+}
+
+export interface PartnerShareRequestsWire {
+  inbox: PartnerShareRequest[];
+  outbox: PartnerShareRequest[];
+}
+
+export interface CreatePartnerShareBody {
+  occurredAt?: string;
+  type: IntimacyType;
+  protection: ProtectionMethod;
+  consentChecked: boolean;
+  senderRating: number;
+  senderRole: UserRole;
+}
+
+export interface ShareRejectPhraseOption {
+  id: string;
+  text: string;
+  emoji?: string;
+}
+
 export interface ReminderSummary {
   title: string;
   body: string;
@@ -132,6 +171,7 @@ export interface DataExport {
   cycles: CycleRecord[];
   posts: SocialPost[];
   reports: unknown[];
+  shareRequests?: PartnerShareRequest[];
   exported: string;
 }
 

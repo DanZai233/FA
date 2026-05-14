@@ -44,6 +44,11 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/partners", s.withAuth(s.handleUnlinkPartner))
 	mux.HandleFunc("GET /api/v1/partners/messages", s.withAuth(s.handlePartnerMessages))
 	mux.HandleFunc("POST /api/v1/partners/messages", s.withAuth(s.handleCreatePartnerMessage))
+	mux.HandleFunc("GET /api/v1/partners/share-requests", s.withAuth(s.handlePartnerShareRequests))
+	mux.HandleFunc("POST /api/v1/partners/share-requests", s.withAuth(s.handleCreatePartnerShareRequest))
+	mux.HandleFunc("POST /api/v1/partners/share-requests/{id}/accept", s.withAuth(s.handleAcceptPartnerShareRequest))
+	mux.HandleFunc("POST /api/v1/partners/share-requests/{id}/reject", s.withAuth(s.handleRejectPartnerShareRequest))
+	mux.HandleFunc("GET /api/v1/partners/share-reject-phrases", s.withAuth(s.handlePartnerShareRejectPhrases))
 	mux.HandleFunc("GET /api/v1/knowledge/cards", s.withAuth(s.handleKnowledgeCards))
 	mux.HandleFunc("GET /api/v1/phrases", s.withAuth(s.handlePhrases))
 	mux.HandleFunc("POST /api/v1/messages/compose", s.withAuth(s.handleCompose))
@@ -147,6 +152,16 @@ func storeErrStatus(err error) int {
 	case errors.Is(err, errEmailTaken):
 		return http.StatusConflict
 	case errors.Is(err, errWeakPassword):
+		return http.StatusBadRequest
+	case errors.Is(err, errPartnerNotLinked):
+		return http.StatusForbidden
+	case errors.Is(err, errPartnerShareNotFound):
+		return http.StatusNotFound
+	case errors.Is(err, errPartnerShareForbidden):
+		return http.StatusForbidden
+	case errors.Is(err, errPartnerShareNotPending):
+		return http.StatusConflict
+	case errors.Is(err, errPartnerSharePhraseRequired) || errors.Is(err, errPartnerSharePhraseTooLong):
 		return http.StatusBadRequest
 	default:
 		return http.StatusBadRequest
@@ -310,6 +325,77 @@ func (s *Server) handleCreatePartnerMessage(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	writeJSON(w, http.StatusCreated, s.store.AddPartnerMessage(currentUser(r).ID, req.Phrase, req.Scene))
+}
+
+func (s *Server) handlePartnerShareRequests(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.store.PartnerShareRequests(currentUser(r).ID))
+}
+
+func (s *Server) handleCreatePartnerShareRequest(w http.ResponseWriter, r *http.Request) {
+	var body CreatePartnerShareBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	req, err := s.store.CreatePartnerShareRequest(currentUser(r).ID, body)
+	if err != nil {
+		writeError(w, storeErrStatus(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, req)
+}
+
+func (s *Server) handleAcceptPartnerShareRequest(w http.ResponseWriter, r *http.Request) {
+	var body AcceptPartnerShareBody
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	uid := currentUser(r).ID
+	share, recs, err := s.store.AcceptPartnerShareRequest(uid, r.PathValue("id"), body.ReceiverRating)
+	if err != nil {
+		writeError(w, storeErrStatus(err), err.Error())
+		return
+	}
+	var mine *IntimacyRecord
+	for i := range recs {
+		if recs[i].UserID == uid {
+			mine = &recs[i]
+			break
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"shareRequest": share, "record": mine})
+}
+
+func (s *Server) handleRejectPartnerShareRequest(w http.ResponseWriter, r *http.Request) {
+	var body RejectPartnerShareBody
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	share, err := s.store.RejectPartnerShareRequest(currentUser(r).ID, r.PathValue("id"), body.Phrase)
+	if err != nil {
+		writeError(w, storeErrStatus(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, share)
+}
+
+// partnerShareRejectPhrase 供拒绝同步时选用（可与自由输入拼接）。
+type partnerShareRejectPhrase struct {
+	ID    string `json:"id"`
+	Text  string `json:"text"`
+	Emoji string `json:"emoji,omitempty"`
+}
+
+var partnerShareRejectPhrases = []partnerShareRejectPhrase{
+	{ID: "r1", Text: "今天不太想同步这条，先记在各自这边吧", Emoji: "🙏"},
+	{ID: "r2", Text: "想先缓缓，下次再一起记", Emoji: "🫧"},
+	{ID: "r3", Text: "细节对不上，这次先不同步啦", Emoji: "🤔"},
+	{ID: "r4", Text: "更想当面聊清楚再记", Emoji: "💬"},
+	{ID: "r5", Text: "状态一般，不想留下这条共同记录", Emoji: "🌙"},
+	{ID: "r6", Text: "谢谢你愿意同步，这次我先婉拒", Emoji: "✨"},
+}
+
+func (s *Server) handlePartnerShareRejectPhrases(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"phrases": partnerShareRejectPhrases})
 }
 
 func (s *Server) handleKnowledgeCards(w http.ResponseWriter, _ *http.Request) {

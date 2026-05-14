@@ -73,6 +73,47 @@ type PartnerMessage struct {
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
+// PartnerShareRequest 法法同步申请：接受前双方都不会写入亲密记录；拒绝则仅通知发起方。
+type PartnerShareRequest struct {
+	ID              string           `json:"id"`
+	FromUserID      string           `json:"fromUserId"`
+	ToUserID        string           `json:"toUserId"`
+	Status          string           `json:"status"` // pending | accepted | rejected
+	SenderRole      UserRole         `json:"senderRole,omitempty"`
+	OccurredAt      string           `json:"occurredAt"`
+	Type            IntimacyType     `json:"type"`
+	Protection      ProtectionMethod `json:"protection"`
+	ConsentChecked  bool             `json:"consentChecked"`
+	SenderRating    int              `json:"senderRating"`
+	CreatedAt       time.Time        `json:"createdAt"`
+	ReceiverRating  int              `json:"receiverRating,omitempty"`
+	RejectionPhrase string           `json:"rejectionPhrase,omitempty"`
+	AcceptedAt      time.Time        `json:"acceptedAt,omitempty"`
+	RejectedAt      time.Time        `json:"rejectedAt,omitempty"`
+}
+
+type PartnerShareRequestsWire struct {
+	Inbox  []PartnerShareRequest `json:"inbox"`
+	Outbox []PartnerShareRequest `json:"outbox"`
+}
+
+type CreatePartnerShareBody struct {
+	OccurredAt     string           `json:"occurredAt"`
+	Type           IntimacyType     `json:"type"`
+	Protection     ProtectionMethod `json:"protection"`
+	ConsentChecked bool             `json:"consentChecked"`
+	SenderRating   int              `json:"senderRating"`
+	SenderRole     UserRole         `json:"senderRole"`
+}
+
+type AcceptPartnerShareBody struct {
+	ReceiverRating int `json:"receiverRating"`
+}
+
+type RejectPartnerShareBody struct {
+	Phrase string `json:"phrase"`
+}
+
 type IntimacyRecord struct {
 	ID                string           `json:"id"`
 	UserID            string           `json:"userId"`
@@ -204,19 +245,20 @@ type CreateReportRequest struct {
 }
 
 type UpdateProfileRequest struct {
-	Nickname     *string   `json:"nickname,omitempty"`
-	SquareAlias  *string   `json:"squareAlias,omitempty"`
-	Role         UserRole  `json:"role,omitempty"`
-	PrivacyLock  *bool     `json:"privacyLock,omitempty"`
+	Nickname    *string  `json:"nickname,omitempty"`
+	SquareAlias *string  `json:"squareAlias,omitempty"`
+	Role        UserRole `json:"role,omitempty"`
+	PrivacyLock *bool    `json:"privacyLock,omitempty"`
 }
 
 type DataExport struct {
-	User     User             `json:"user"`
-	Partner  PartnerLink      `json:"partner"`
-	Messages []PartnerMessage `json:"messages"`
-	Records  []IntimacyRecord `json:"records"`
-	Cycles   []CycleRecord    `json:"cycles"`
-	Posts    []SocialPost     `json:"posts"`
-	Reports  []Report         `json:"reports"`
-	Exported time.Time        `json:"exported"`
+	User          User                  `json:"user"`
+	Partner       PartnerLink           `json:"partner"`
+	Messages      []PartnerMessage      `json:"messages"`
+	Records       []IntimacyRecord      `json:"records"`
+	Cycles        []CycleRecord         `json:"cycles"`
+	Posts         []SocialPost          `json:"posts"`
+	Reports       []Report              `json:"reports"`
+	ShareRequests []PartnerShareRequest `json:"shareRequests,omitempty"`
+	Exported      time.Time             `json:"exported"`
 }

@@ -14,10 +14,11 @@ type Server struct {
 	cfg      Config
 	store    *MemoryStore
 	captchas *captchaStore
+	geo      GeoLookup
 }
 
-func NewServer(cfg Config, store *MemoryStore) *Server {
-	return &Server{cfg: cfg, store: store, captchas: newCaptchaStore()}
+func NewServer(cfg Config, store *MemoryStore, geo GeoLookup) *Server {
+	return &Server{cfg: cfg, store: store, captchas: newCaptchaStore(), geo: geo}
 }
 
 func (s *Server) Routes() http.Handler {
@@ -163,6 +164,14 @@ func storeErrStatus(err error) int {
 		return http.StatusConflict
 	case errors.Is(err, errPartnerSharePhraseRequired) || errors.Is(err, errPartnerSharePhraseTooLong):
 		return http.StatusBadRequest
+	case errors.Is(err, ErrPolyOathInvalid):
+		return http.StatusForbidden
+	case errors.Is(err, ErrExclusiveTooManyPartners):
+		return http.StatusConflict
+	case errors.Is(err, ErrTargetPartnerRequired), errors.Is(err, ErrTargetPartnerNotLinked), errors.Is(err, ErrInvalidRelationshipModeValue):
+		return http.StatusBadRequest
+	case errors.Is(err, errNotFound):
+		return http.StatusNotFound
 	default:
 		return http.StatusBadRequest
 	}
@@ -180,7 +189,7 @@ func (s *Server) handleUpdateMe(w http.ResponseWriter, r *http.Request) {
 	}
 	user, err := s.store.UpdateUser(currentUser(r).ID, req)
 	if err != nil {
-		writeError(w, http.StatusNotFound, "user not found")
+		writeError(w, storeErrStatus(err), err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, user)
@@ -206,7 +215,7 @@ func (s *Server) handleCreateRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if record.OccurredAt == "" {
-		record.OccurredAt = time.Now().Format("2006-01-02")
+		record.OccurredAt = formatDate(time.Now())
 	}
 	writeJSON(w, http.StatusCreated, s.store.AddRecord(currentUser(r).ID, record))
 }
@@ -218,7 +227,7 @@ func (s *Server) handleUpdateRecord(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if record.OccurredAt == "" {
-		record.OccurredAt = time.Now().Format("2006-01-02")
+		record.OccurredAt = formatDate(time.Now())
 	}
 	updated, err := s.store.UpdateRecord(currentUser(r).ID, r.PathValue("id"), record)
 	if err != nil {
@@ -278,8 +287,7 @@ func (s *Server) handleReminderSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetPartner(w http.ResponseWriter, r *http.Request) {
-	link, _ := s.store.Partner(currentUser(r).ID)
-	writeJSON(w, http.StatusOK, link)
+	writeJSON(w, http.StatusOK, s.store.PartnerHub(currentUser(r).ID))
 }
 
 func (s *Server) handleCreatePartnerInvite(w http.ResponseWriter, r *http.Request) {
@@ -308,7 +316,8 @@ func (s *Server) handleAcceptPartnerInvite(w http.ResponseWriter, r *http.Reques
 }
 
 func (s *Server) handleUnlinkPartner(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.UnlinkPartner(currentUser(r).ID))
+	peer := strings.TrimSpace(r.URL.Query().Get("peerId"))
+	writeJSON(w, http.StatusOK, s.store.UnlinkPartner(currentUser(r).ID, peer))
 }
 
 func (s *Server) handlePartnerMessages(w http.ResponseWriter, r *http.Request) {
@@ -317,14 +326,15 @@ func (s *Server) handlePartnerMessages(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleCreatePartnerMessage(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Phrase string `json:"phrase"`
-		Scene  string `json:"scene"`
+		Phrase          string `json:"phrase"`
+		Scene           string `json:"scene"`
+		TargetPartnerID string `json:"targetPartnerId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
-	writeJSON(w, http.StatusCreated, s.store.AddPartnerMessage(currentUser(r).ID, req.Phrase, req.Scene))
+	writeJSON(w, http.StatusCreated, s.store.AddPartnerMessage(currentUser(r).ID, req.Phrase, req.Scene, req.TargetPartnerID))
 }
 
 func (s *Server) handlePartnerShareRequests(w http.ResponseWriter, r *http.Request) {
@@ -433,7 +443,9 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "phrase too long")
 		return
 	}
-	writeJSON(w, http.StatusCreated, s.store.AddPost(currentUser(r).ID, phrase))
+	ip := ClientIP(r)
+	label := PostIPRegionLabel(s.geo, ip)
+	writeJSON(w, http.StatusCreated, s.store.AddPost(currentUser(r).ID, phrase, label))
 }
 
 func (s *Server) handleResonatePost(w http.ResponseWriter, r *http.Request) {

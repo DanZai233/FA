@@ -5,10 +5,7 @@ enum FalemeQuips {
     private static let fabKeyPrefix = "faleme.fabClicks.v1:"
 
     private static func todayISO() -> String {
-        let f = DateFormatter()
-        f.dateFormat = "yyyy-MM-dd"
-        f.timeZone = TimeZone.current
-        return f.string(from: Date())
+        FalemeDateFormatting.shanghaiCalendarToday()
     }
 
     static func bumpTodayFabClick(deviceKey: String) -> Int {

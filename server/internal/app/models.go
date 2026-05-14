@@ -41,16 +41,17 @@ const (
 )
 
 type User struct {
-	ID             string    `json:"id"`
-	DeviceID       string    `json:"deviceId,omitempty"`
-	Email          string    `json:"email,omitempty"`
-	Nickname       string    `json:"nickname"` // 用户名：仅自己与伴侣可见（API 字段名保持 nickname 兼容旧客户端）
-	SquareAlias    string    `json:"squareAlias"`
-	Role           UserRole  `json:"role"`
-	AdultConfirmed bool      `json:"adultConfirmed"`
-	PrivacyLock    bool      `json:"privacyLock"`
-	DeletedAt      time.Time `json:"deletedAt,omitempty"`
-	CreatedAt      time.Time `json:"createdAt"`
+	ID               string    `json:"id"`
+	DeviceID         string    `json:"deviceId,omitempty"`
+	Email            string    `json:"email,omitempty"`
+	Nickname         string    `json:"nickname"` // 用户名：仅自己与伴侣可见（API 字段名保持 nickname 兼容旧客户端）
+	SquareAlias      string    `json:"squareAlias"`
+	Role             UserRole  `json:"role"`
+	AdultConfirmed   bool      `json:"adultConfirmed"`
+	PrivacyLock      bool      `json:"privacyLock"`
+	RelationshipMode string    `json:"relationshipMode,omitempty"` // exclusive（默认）| poly
+	DeletedAt        time.Time `json:"deletedAt,omitempty"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 type PartnerLink struct {
@@ -64,12 +65,25 @@ type PartnerLink struct {
 	ConfirmedAt time.Time `json:"confirmedAt,omitempty"`
 }
 
+// PartnerWire GET /partners 单条连线（含对方昵称便于 UI）。
+type PartnerWire struct {
+	PartnerLink
+	PeerNickname string `json:"peerNickname,omitempty"`
+}
+
+// PartnerHubResponse 伴侣总览（众乐乐下 partners 可多条）。
+type PartnerHubResponse struct {
+	RelationshipMode string        `json:"relationshipMode"`
+	Partners         []PartnerWire `json:"partners"`
+}
+
 type PartnerMessage struct {
 	ID             string    `json:"id"`
 	UserID         string    `json:"userId"`
 	AuthorNickname string    `json:"authorNickname,omitempty"` // 发送时的用户名（nickname），仅伴侣可见
 	Phrase         string    `json:"phrase"`
 	Scene          string    `json:"scene"`
+	TargetPeerID   string    `json:"targetPeerId,omitempty"` // 众乐乐：只推给该伴侣；空则推给所有已关联伴侣
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
@@ -98,12 +112,13 @@ type PartnerShareRequestsWire struct {
 }
 
 type CreatePartnerShareBody struct {
-	OccurredAt     string           `json:"occurredAt"`
-	Type           IntimacyType     `json:"type"`
-	Protection     ProtectionMethod `json:"protection"`
-	ConsentChecked bool             `json:"consentChecked"`
-	SenderRating   int              `json:"senderRating"`
-	SenderRole     UserRole         `json:"senderRole"`
+	OccurredAt      string           `json:"occurredAt"`
+	Type            IntimacyType     `json:"type"`
+	Protection      ProtectionMethod `json:"protection"`
+	ConsentChecked  bool             `json:"consentChecked"`
+	SenderRating    int              `json:"senderRating"`
+	SenderRole      UserRole         `json:"senderRole"`
+	TargetPartnerID string           `json:"targetPartnerId,omitempty"` // 众乐乐且多条关联时必填
 }
 
 type AcceptPartnerShareBody struct {
@@ -178,6 +193,8 @@ type SocialPost struct {
 	CreatedAt      time.Time `json:"createdAt"`
 	Reported       bool      `json:"reported"`
 	Blocked        bool      `json:"blocked"`
+	// IPRegion 为发布请求来源 IP 的离线库解析结果（展示用，非精确定位）；无库或未命中时为空。
+	IPRegion string `json:"ipRegion,omitempty"`
 }
 
 type MatchCard struct {
@@ -245,10 +262,12 @@ type CreateReportRequest struct {
 }
 
 type UpdateProfileRequest struct {
-	Nickname    *string  `json:"nickname,omitempty"`
-	SquareAlias *string  `json:"squareAlias,omitempty"`
-	Role        UserRole `json:"role,omitempty"`
-	PrivacyLock *bool    `json:"privacyLock,omitempty"`
+	Nickname         *string  `json:"nickname,omitempty"`
+	SquareAlias      *string  `json:"squareAlias,omitempty"`
+	Role             UserRole `json:"role,omitempty"`
+	PrivacyLock      *bool    `json:"privacyLock,omitempty"`
+	RelationshipMode *string  `json:"relationshipMode,omitempty"` // exclusive | poly
+	PolyOath         *string  `json:"polyOath,omitempty"`         // 开启 poly 时须为 我是渣男 或 我是渣女
 }
 
 type DataExport struct {

@@ -14,7 +14,8 @@ func main() {
 		log.Fatalf("postgres persistence init failed: %v", err)
 	}
 	store := app.NewMemoryStoreWithPersistence(persistence)
-	server := app.NewServer(cfg, store)
+	geo := app.OpenIP2Region(cfg.IP2RegionV4DB, cfg.IP2RegionV6DB)
+	server := app.NewServer(cfg, store, geo)
 
 	log.Printf("faleme api listening on %s", cfg.Addr)
 	if err := http.ListenAndServe(cfg.Addr, server.Routes()); err != nil {

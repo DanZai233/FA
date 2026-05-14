@@ -39,33 +39,38 @@ import {
   getPartnerShareInboxBanter,
   getPartnerShareOutboxBanter,
 } from './design/faleQuips';
+import {exclusiveModeNote, polyModePrelude, polyOathPlaceholder} from './design/relationshipModeCopy';
 import {api, getAuthToken, setAuthToken} from './api/client';
 import {AuthScreen} from './AuthScreen';
-import type {
-  CyclePrediction,
-  CycleRecord,
-  HealthAdvice,
-  IntimacyRecord,
-  IntimacyType,
-  KnowledgeCard,
-  MatchCard,
-  PartnerLinkWire,
-  PartnerMessage,
-  PartnerShareRequest,
-  PartnerShareRequestsWire,
-  PartnerLinkStatus,
-  PhraseSlot,
-  ProtectionMethod,
-  ReminderSummary,
-  RiskLevel,
-  ShareRejectPhraseOption,
-  SocialPost,
-  UserProfile,
-  UserRole,
+import {
+  normalizeRelationshipMode,
+  partnerStatusFromHub,
+  type CyclePrediction,
+  type CycleRecord,
+  type HealthAdvice,
+  type IntimacyRecord,
+  type IntimacyType,
+  type KnowledgeCard,
+  type MatchCard,
+  type PartnerHub,
+  type PartnerLinkWire,
+  type PartnerMessage,
+  type PartnerShareRequest,
+  type PartnerShareRequestsWire,
+  type PartnerWire,
+  type PartnerLinkStatus,
+  type PhraseSlot,
+  type ProtectionMethod,
+  type ReminderSummary,
+  type RiskLevel,
+  type ShareRejectPhraseOption,
+  type SocialPost,
+  type UserProfile,
+  type UserRole,
 } from './types/domain';
+import {formatWallClockShanghai, recentShanghaiCalendarDays, shanghaiCalendarDay as isoDate} from './datetime';
 
 const today = new Date();
-const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 const addDays = (date: Date, days: number) => {
   const next = new Date(date);
   next.setDate(next.getDate() + days);
@@ -177,6 +182,23 @@ const seedMessages: PartnerMessage[] = [
   },
 ];
 
+const emptyPartnerHub: PartnerHub = {relationshipMode: 'exclusive', partners: []};
+
+function normalizePartnerHub(raw: unknown): PartnerHub {
+  if (raw && typeof raw === 'object' && 'partners' in raw && Array.isArray((raw as PartnerHub).partners)) {
+    const h = raw as PartnerHub;
+    return {
+      relationshipMode: normalizeRelationshipMode(h.relationshipMode),
+      partners: h.partners ?? [],
+    };
+  }
+  const legacy = raw as PartnerLinkWire | null | undefined;
+  if (legacy && legacy.status && legacy.status !== 'none') {
+    return {relationshipMode: 'exclusive', partners: [{...legacy}]};
+  }
+  return {...emptyPartnerHub};
+}
+
 type TabKey = 'home' | 'cycle' | 'partner' | 'square' | 'profile';
 
 type OfflineRecord = {
@@ -268,8 +290,9 @@ function MobileApp() {
     role: 'switch',
     adultConfirmed: true,
     partnerStatus: 'none',
+    relationshipMode: 'exclusive',
   });
-  const [partnerLink, setPartnerLink] = useState<PartnerLinkWire | null>(null);
+  const [partnerHub, setPartnerHub] = useState<PartnerHub | null>(null);
   const [records, setRecords] = useState<IntimacyRecord[]>(seedRecords);
   const [cycle, setCycle] = useState<CycleRecord>(seedCycle);
   const [posts, setPosts] = useState<SocialPost[]>(socialSeed);
@@ -310,8 +333,9 @@ function MobileApp() {
             ? {inbox: nextShares.inbox ?? [], outbox: nextShares.outbox ?? []}
             : {inbox: [], outbox: []},
         );
-        setPartnerLink(nextPartner);
-        setProfile((p) => ({...p, partnerStatus: nextPartner.status}));
+        const hub = normalizePartnerHub(nextPartner);
+        setPartnerHub(hub);
+        setProfile((p) => ({...p, partnerStatus: partnerStatusFromHub(hub)}));
         setApiStatus('connected');
       })
       .catch(() => setApiStatus('offline-demo'));
@@ -353,9 +377,10 @@ function MobileApp() {
         setProfile((prev) => ({
           ...prev,
           ...nextProfile,
-          partnerStatus: nextPartner.status,
+          relationshipMode: normalizeRelationshipMode(nextProfile.relationshipMode),
+          partnerStatus: partnerStatusFromHub(normalizePartnerHub(nextPartner)),
         }));
-        setPartnerLink(nextPartner);
+        setPartnerHub(normalizePartnerHub(nextPartner));
         setRecords(Array.isArray(nextRecords) ? nextRecords : []);
         const cycles = Array.isArray(nextCycles) ? nextCycles : [];
         if (cycles[0]) {
@@ -421,10 +446,26 @@ function MobileApp() {
   }
 
   const saveRecord = (draft: RecordDraft) => {
-    const partnerLinked = partnerLink?.status === 'linked';
+    const hub = partnerHub ?? emptyPartnerHub;
+    const mode = normalizeRelationshipMode(hub.relationshipMode);
+    const linkedRows = (hub.partners ?? []).filter((p) => p.status === 'linked' && p.partnerId);
+    const partnerLinked = linkedRows.length > 0;
     const useShareFlow = Boolean(draft.sharedWithPartner && partnerLinked);
 
+    const resolveTargetPartnerId = (): string | undefined => {
+      if (linkedRows.length === 0) return undefined;
+      if (linkedRows.length === 1) return linkedRows[0].partnerId;
+      const tid = draft.targetPartnerId?.trim();
+      return tid || undefined;
+    };
+
     if (useShareFlow) {
+      const targetPartnerId = resolveTargetPartnerId();
+      if (mode === 'poly' && linkedRows.length > 1 && !targetPartnerId) {
+        setHomeEcho('众乐乐：请先选择本次「法法同步」要发送给哪位搭子。');
+        setRecordSheetOpen(false);
+        return;
+      }
       const body = {
         occurredAt: isoDate(new Date()),
         type: draft.type,
@@ -432,6 +473,7 @@ function MobileApp() {
         consentChecked: draft.consentChecked,
         senderRating: draft.rating,
         senderRole: profile.role,
+        ...(targetPartnerId ? {targetPartnerId} : {}),
       };
       api
         .createPartnerShareRequest(body)
@@ -446,12 +488,23 @@ function MobileApp() {
     }
 
     const riskLevel = calculateRisk(draft.protection, draft.type, prediction.todayAdvice.level);
+    let recordPartnerId = resolveTargetPartnerId();
+    if (mode === 'poly' && linkedRows.length > 1 && !recordPartnerId) {
+      setHomeEcho('众乐乐：请先选择这次亲密记录要关联哪位搭子。');
+      setRecordSheetOpen(false);
+      return;
+    }
+    if (linkedRows.length <= 1) {
+      recordPartnerId = linkedRows[0]?.partnerId;
+    }
+
     const optimisticRecord: IntimacyRecord = {
       id: `rec-${Date.now()}`,
       occurredAt: isoDate(new Date()),
       riskLevel,
       noteTags: buildTags(draft, riskLevel),
       ...draft,
+      ...(recordPartnerId ? {partnerId: recordPartnerId} : {}),
     };
     setRecords((prev) => [optimisticRecord, ...prev]);
     api.createRecord(optimisticRecord)
@@ -533,11 +586,11 @@ function MobileApp() {
           )}
           {activeTab === 'partner' && (
             <PartnerView
-              partner={partnerLink ?? {status: 'none'}}
+              partnerHub={partnerHub ?? emptyPartnerHub}
               messages={partnerMessages}
               shareWire={shareWire}
               rejectPhrasePresets={shareRejectPresets}
-              onSendMessage={(phrase) => {
+              onSendMessage={(phrase, targetPartnerId) => {
                 const optimistic: PartnerMessage = {
                   id: `msg-${Date.now()}`,
                   userId: profile.id,
@@ -545,9 +598,11 @@ function MobileApp() {
                   phrase,
                   scene: 'partner',
                   createdAt: isoDate(new Date()),
+                  ...(targetPartnerId ? {targetPeerId: targetPartnerId} : {}),
                 };
                 setPartnerMessages((prev) => [optimistic, ...prev]);
-                api.createPartnerMessage(phrase)
+                api
+                  .createPartnerMessage(phrase, targetPartnerId ? {targetPartnerId} : undefined)
                   .then((message) => {
                     setPartnerMessages((prev) => prev.map((item) => (item.id === optimistic.id ? message : item)));
                     setApiStatus('connected');
@@ -556,22 +611,24 @@ function MobileApp() {
               }}
               onCreateInvite={async () => {
                 try {
-                  const link = await api.createPartnerInvite();
-                  setPartnerLink(link);
-                  setProfile((p) => ({...p, partnerStatus: link.status}));
-                  if (link.inviteCode) {
-                    await navigator.clipboard?.writeText(link.inviteCode).catch(() => {});
+                  await api.createPartnerInvite();
+                  const hub = normalizePartnerHub(await api.partner());
+                  setPartnerHub(hub);
+                  setProfile((p) => ({...p, partnerStatus: partnerStatusFromHub(hub)}));
+                  const code = hub.partners.find((w) => w.status === 'pending')?.inviteCode;
+                  if (code) {
+                    await navigator.clipboard?.writeText(code).catch(() => {});
                   }
                   setApiStatus('connected');
                 } catch {
                   setApiStatus('offline-demo');
                 }
               }}
-              onUnlink={async () => {
+              onUnlink={async (peerId) => {
                 try {
-                  const link = await api.unlinkPartner();
-                  setPartnerLink(link);
-                  setProfile((p) => ({...p, partnerStatus: link.status}));
+                  const hub = await api.unlinkPartner(peerId);
+                  setPartnerHub(normalizePartnerHub(hub));
+                  setProfile((p) => ({...p, partnerStatus: partnerStatusFromHub(normalizePartnerHub(hub))}));
                   setApiStatus('connected');
                 } catch {
                   setApiStatus('offline-demo');
@@ -579,9 +636,10 @@ function MobileApp() {
               }}
               onAcceptInvite={async (code) => {
                 try {
-                  const link = await api.acceptPartnerInvite(code);
-                  setPartnerLink(link);
-                  setProfile((p) => ({...p, partnerStatus: link.status}));
+                  await api.acceptPartnerInvite(code);
+                  const hub = normalizePartnerHub(await api.partner());
+                  setPartnerHub(hub);
+                  setProfile((p) => ({...p, partnerStatus: partnerStatusFromHub(hub)}));
                   setApiStatus('connected');
                 } catch {
                   setApiStatus('offline-demo');
@@ -640,6 +698,7 @@ function MobileApp() {
             <ProfileView
               profile={profile}
               records={records}
+              apiConnected={apiStatus === 'connected'}
               onSaveUsername={(nickname) => {
                 const clipped = Array.from(nickname.trim()).slice(0, 32).join('');
                 api
@@ -689,8 +748,16 @@ function MobileApp() {
                     setAuthPhase('anon');
                     setRecords([]);
                     setPosts([]);
-                    setPartnerLink({status: 'none'});
-                    setProfile({id: '', nickname: '', squareAlias: '', role: 'switch', adultConfirmed: true, partnerStatus: 'none'});
+                    setPartnerHub(null);
+                    setProfile({
+                      id: '',
+                      nickname: '',
+                      squareAlias: '',
+                      role: 'switch',
+                      adultConfirmed: true,
+                      partnerStatus: 'none',
+                      relationshipMode: 'exclusive',
+                    });
                     setApiStatus('connected');
                   })
                   .catch(() => setApiStatus('offline-demo'));
@@ -698,6 +765,22 @@ function MobileApp() {
               onLogout={() => {
                 setAuthToken(null);
                 setAuthPhase('anon');
+              }}
+              onEnablePoly={async (oath) => {
+                const me = await api.updateMe({relationshipMode: 'poly', polyOath: oath});
+                setProfile((prev) => ({...prev, ...me, relationshipMode: normalizeRelationshipMode(me.relationshipMode)}));
+                const hub = normalizePartnerHub(await api.partner());
+                setPartnerHub(hub);
+                setProfile((p) => ({...p, partnerStatus: partnerStatusFromHub(hub)}));
+                setApiStatus('connected');
+              }}
+              onDisablePoly={async () => {
+                const me = await api.updateMe({relationshipMode: 'exclusive'});
+                setProfile((prev) => ({...prev, ...me, relationshipMode: normalizeRelationshipMode(me.relationshipMode)}));
+                const hub = normalizePartnerHub(await api.partner());
+                setPartnerHub(hub);
+                setProfile((p) => ({...p, partnerStatus: partnerStatusFromHub(hub)}));
+                setApiStatus('connected');
               }}
             />
           )}
@@ -716,7 +799,7 @@ function MobileApp() {
         <RecordSheet
           isOpen={recordSheetOpen}
           advice={prediction.todayAdvice}
-          partnerLinked={partnerLink?.status === 'linked'}
+          partnerHub={partnerHub ?? emptyPartnerHub}
           topBanter={recordBanter}
           onClose={() => {
             setRecordSheetOpen(false);
@@ -1056,7 +1139,7 @@ function CycleView({
 }
 
 function PartnerView({
-  partner,
+  partnerHub,
   messages,
   shareWire,
   rejectPhrasePresets,
@@ -1067,20 +1150,31 @@ function PartnerView({
   onAcceptPartnerShare,
   onRejectPartnerShare,
 }: {
-  partner: PartnerLinkWire;
+  partnerHub: PartnerHub;
   messages: PartnerMessage[];
   shareWire: PartnerShareRequestsWire;
   rejectPhrasePresets: ShareRejectPhraseOption[];
-  onSendMessage: (phrase: string) => void;
+  onSendMessage: (phrase: string, targetPartnerId?: string) => void;
   onCreateInvite: () => Promise<void>;
-  onUnlink: () => Promise<void>;
+  onUnlink: (peerId?: string) => Promise<void>;
   onAcceptInvite: (inviteCode: string) => Promise<void>;
   onAcceptPartnerShare: (id: string, receiverRating: number) => Promise<void>;
   onRejectPartnerShare: (id: string, phrase: string) => Promise<void>;
 }) {
-  const linked = partner.status === 'linked';
-  const pending = partner.status === 'pending';
-  const displayCode = (partner.inviteCode ?? '').trim();
+  const mode = normalizeRelationshipMode(partnerHub.relationshipMode);
+  const linkedWires = useMemo(
+    () => (partnerHub.partners ?? []).filter((w) => w.status === 'linked' && w.partnerId),
+    [partnerHub],
+  );
+  const pendingWire = useMemo(
+    () => (partnerHub.partners ?? []).find((w) => w.status === 'pending'),
+    [partnerHub],
+  );
+  const linked = linkedWires.length > 0;
+  const pending = Boolean(pendingWire);
+  const displayWire: PartnerWire = pendingWire ?? linkedWires[0] ?? {status: 'none'};
+  const displayCode = (displayWire.inviteCode ?? '').trim();
+  const polyMultiLinked = mode === 'poly' && linkedWires.length > 1;
   const messageList = messages ?? [];
   const inbox = shareWire.inbox ?? [];
   const outbox = shareWire.outbox ?? [];
@@ -1093,21 +1187,35 @@ function PartnerView({
   const [shareRejectDraft, setShareRejectDraft] = useState('');
   const [parts, setParts] = useState<Record<PhraseSlot, string>>(() => randomPhraseParts());
   const [partnerShufflePop, setPartnerShufflePop] = useState(0);
+  const [msgTargetPeer, setMsgTargetPeer] = useState('');
   const phrase = `${parts.tone} / ${parts.subject} / ${parts.action} / ${parts.ending}`;
+
+  useEffect(() => {
+    const ids = linkedWires.map((w) => w.partnerId).filter(Boolean) as string[];
+    setMsgTargetPeer((prev) => (ids.includes(prev) ? prev : ids[0] ?? ''));
+  }, [linkedWires]);
+
   const title = linked ? '已绑定心动搭子' : pending ? '邀请已生成' : '等待绑定搭子';
   const subtitle = linked
-    ? '共享不是偷看，所有记录都要逐项授权。'
+    ? mode === 'poly'
+      ? '众乐乐：每位搭子都要单独确认共享；留言也可指定对象。'
+      : '共享不是偷看，所有记录都要逐项授权。'
     : pending
       ? '把下方邀请码发给对方，对方在「接受邀请」里输入即可完成绑定。'
       : '生成专属邀请码，交给对方确认后再进入同步模式。';
 
+  const pageSubtitle =
+    mode === 'poly' ? '多搭子也要逐项确认：权限边界不因为人数变松。' : '两个人的事，权限也要两个人确认。';
+
   return (
     <section className="space-y-5 p-5 pt-8">
-      <PageTitle title="伴侣绑定" subtitle="两个人的事，权限也要两个人确认。" />
+      <PageTitle title="伴侣绑定" subtitle={pageSubtitle} />
       <div className="overflow-hidden rounded-[2rem] border border-white/30 bg-slate-950/95 p-5 text-white shadow-xl shadow-rose-200/30 backdrop-blur-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.25em] text-white/40">partner link</p>
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-white/40">
+              {mode === 'poly' ? 'poly · 众乐乐' : 'exclusive · 独乐乐'}
+            </p>
             <h2 className="mt-2 text-2xl font-black">{title}</h2>
             <p className="mt-2 text-sm leading-6 text-white/65">{subtitle}</p>
           </div>
@@ -1137,7 +1245,9 @@ function PartnerView({
           onClick={async () => {
             setBusy(true);
             try {
-              if (linked) {
+              if (polyMultiLinked) {
+                await onCreateInvite();
+              } else if (linked) {
                 await onUnlink();
               } else {
                 await onCreateInvite();
@@ -1148,9 +1258,47 @@ function PartnerView({
           }}
           className="mt-5 w-full rounded-2xl bg-white py-3 text-sm font-black text-slate-950 active:scale-[0.99] disabled:opacity-50"
         >
-          {linked ? '解除绑定' : pending ? '重新生成并复制' : '生成并复制邀请码'}
+          {polyMultiLinked
+            ? '邀请更多搭子（复制新码）'
+            : linked
+              ? '解除绑定'
+              : pending
+                ? '重新生成并复制'
+                : '生成并复制邀请码'}
         </button>
       </div>
+
+      {mode === 'poly' && linkedWires.length > 0 ? (
+        <Card title="已绑定的搭子" action="众乐乐 · 单独解除">
+          <ul className="space-y-2">
+            {linkedWires.map((w) => (
+              <li
+                key={w.partnerId}
+                className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-100 bg-slate-50 px-3 py-2.5"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm font-bold text-slate-800">
+                  {w.peerNickname?.trim() || w.partnerId}
+                </span>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    try {
+                      await onUnlink(w.partnerId);
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                  className="shrink-0 rounded-xl border border-rose-200 bg-white px-3 py-1.5 text-xs font-black text-rose-600 disabled:opacity-50"
+                >
+                  解除
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
 
       <Card title="接受对方邀请" action="输入邀请码">
         <div className="space-y-3">
@@ -1412,6 +1560,22 @@ function PartnerView({
               </motion.p>
             </div>
           </div>
+          {linkedWires.length > 1 ? (
+            <div className="rounded-2xl border border-violet-100 bg-violet-50/60 px-3 py-2.5">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-violet-600/90">发给谁</p>
+              <select
+                value={msgTargetPeer}
+                onChange={(e) => setMsgTargetPeer(e.target.value)}
+                className="mt-2 w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm font-bold text-slate-800 outline-none focus:border-violet-400"
+              >
+                {linkedWires.map((w) => (
+                  <option key={w.partnerId} value={w.partnerId}>
+                    {w.peerNickname?.trim() || w.partnerId}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
           <PhraseSelect slot="tone" label="语气" value={parts.tone} values={phraseBook.tones} onChange={(tone) => setParts((prev) => ({...prev, tone}))} />
           <PhraseSelect slot="subject" label="主语" value={parts.subject} values={phraseBook.subjects} onChange={(subject) => setParts((prev) => ({...prev, subject}))} />
           <PhraseSelect slot="action" label="动作" value={parts.action} values={phraseBook.actions} onChange={(action) => setParts((prev) => ({...prev, action}))} />
@@ -1439,7 +1603,7 @@ function PartnerView({
           </motion.button>
           <motion.button
             type="button"
-            onClick={() => onSendMessage(phrase)}
+            onClick={() => onSendMessage(phrase, linkedWires.length > 1 ? msgTargetPeer : undefined)}
             whileHover={{scale: 1.02}}
             whileTap={{scale: 0.97}}
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 py-3 text-sm font-black text-white shadow-md shadow-rose-300/40"
@@ -1455,7 +1619,7 @@ function PartnerView({
           {messageList.map((message) => (
             <div key={message.id} className="rounded-3xl bg-slate-50 p-4">
               <p className="text-xs font-black text-slate-600">{message.authorNickname?.trim() || '未设置'}</p>
-              <p className="mt-1 text-xs font-bold text-slate-400">{message.createdAt}</p>
+              <p className="mt-1 text-xs font-bold text-slate-400">{formatWallClockShanghai(message.createdAt)}</p>
               <p className="mt-2 text-sm font-black leading-6 text-slate-800">{message.phrase}</p>
             </div>
           ))}
@@ -1581,7 +1745,7 @@ function SquareView({
                   <p className="mt-1 whitespace-pre-wrap break-words text-[15px] font-semibold leading-relaxed text-slate-800">
                     {post.phrase}
                   </p>
-                  <div className="mt-2 flex items-center gap-3 text-xs font-bold text-slate-400">
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-slate-400">
                     <button
                       type="button"
                       onClick={() => onResonate(post.id)}
@@ -1590,7 +1754,12 @@ function SquareView({
                       <Heart size={14} className="shrink-0" />
                       {post.resonanceCount}
                     </button>
-                    <span className="tabular-nums">{post.createdAt}</span>
+                    <span className="tabular-nums">{formatWallClockShanghai(post.createdAt)}</span>
+                    {post.ipRegion ? (
+                      <span className="max-w-[14rem] truncate text-[11px] font-semibold text-slate-400" title={post.ipRegion}>
+                        IP 属地 {post.ipRegion}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               </div>
@@ -1743,6 +1912,7 @@ function SquareView({
 function ProfileView({
   profile,
   records,
+  apiConnected,
   onSaveUsername,
   onSaveSquareAlias,
   onRoleChange,
@@ -1750,9 +1920,12 @@ function ProfileView({
   onExportData,
   onDeleteAccount,
   onLogout,
+  onEnablePoly,
+  onDisablePoly,
 }: {
   profile: UserProfile;
   records: IntimacyRecord[];
+  apiConnected: boolean;
   onSaveUsername: (nickname: string) => void;
   onSaveSquareAlias: (squareAlias: string) => void;
   onRoleChange: (role: UserRole) => void;
@@ -1760,9 +1933,15 @@ function ProfileView({
   onExportData: () => void;
   onDeleteAccount: () => void;
   onLogout: () => void;
+  onEnablePoly: (oath: string) => Promise<void>;
+  onDisablePoly: () => Promise<void>;
 }) {
   const [usernameDraft, setUsernameDraft] = useState(profile.nickname);
   const [squareDraft, setSquareDraft] = useState(profile.squareAlias ?? '');
+  const [modeDialog, setModeDialog] = useState<'closed' | 'poly-read' | 'poly-oath'>('closed');
+  const [oathDraft, setOathDraft] = useState('');
+  const [modeBusy, setModeBusy] = useState(false);
+  const [modeError, setModeError] = useState<string | null>(null);
   useEffect(() => {
     setUsernameDraft(profile.nickname);
   }, [profile.nickname]);
@@ -1771,8 +1950,10 @@ function ProfileView({
   }, [profile.squareAlias]);
 
   const displayName = profile.nickname?.trim() || '未设置用户名';
+  const relMode = normalizeRelationshipMode(profile.relationshipMode);
 
   return (
+    <>
     <section className="space-y-5 p-5 pt-8">
       <PageTitle title="我的" subtitle="成年人的体面，是知道什么时候该认真。" />
       <Card title={displayName} action="成年确认已完成">
@@ -1843,6 +2024,57 @@ function ProfileView({
         </div>
       </Card>
 
+      <Card title="关系模式" action="只改绑定规则，不改做人分数">
+        <p className="text-sm font-bold text-slate-800">
+          当前：{relMode === 'poly' ? '逆天价值观 · 众乐乐' : '道德标杆 · 独乐乐'}
+        </p>
+        <p className="mt-2 text-xs leading-5 text-slate-500">
+          {relMode === 'poly'
+            ? '可同时绑定多位搭子；记录与留言需选择对象。切回独乐乐前请先只保留一位绑定。'
+            : '默认一对一；可在阅读风险文案并宣誓后切换为多搭子模式。'}
+        </p>
+        <div className="mt-4 flex flex-col gap-2">
+          {relMode === 'exclusive' ? (
+            <button
+              type="button"
+              disabled={!apiConnected || modeBusy}
+              onClick={() => {
+                setModeDialog('poly-read');
+                setOathDraft('');
+                setModeError(null);
+              }}
+              className="rounded-2xl bg-slate-950 py-3 text-sm font-black text-white disabled:opacity-40"
+            >
+              切换到「众乐乐」模式
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={!apiConnected || modeBusy}
+              onClick={async () => {
+                setModeBusy(true);
+                setModeError(null);
+                try {
+                  await onDisablePoly();
+                } catch (e) {
+                  const msg = e instanceof Error ? e.message : String(e);
+                  setModeError(msg.includes('exclusive') || msg.includes('伴侣') ? msg : `${exclusiveModeNote}（${msg}）`);
+                } finally {
+                  setModeBusy(false);
+                }
+              }}
+              className="rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-800 disabled:opacity-40"
+            >
+              切回「独乐乐」模式
+            </button>
+          )}
+          {!apiConnected ? (
+            <p className="text-center text-[11px] font-bold text-amber-700">离线演示或未连上服务器时无法切换模式。</p>
+          ) : null}
+          {modeError ? <p className="text-center text-xs font-bold text-rose-600">{modeError}</p> : null}
+        </div>
+      </Card>
+
       <Card title="隐私开关" action="默认谨慎">
         <div className="space-y-3">
           <ToggleRow
@@ -1884,25 +2116,142 @@ function ProfileView({
         <MenuLink href="/support" icon={<MessageCircle size={18} />} label="App Store 支持页" />
       </Card>
     </section>
+
+    <AnimatePresence>
+      {modeDialog !== 'closed' ? (
+        <>
+          <motion.div
+            key="mode-overlay"
+            aria-hidden
+            initial={{opacity: 0}}
+            animate={{opacity: 1}}
+            exit={{opacity: 0}}
+            className="fixed inset-0 z-[80] bg-slate-950/45 backdrop-blur-sm"
+            onClick={() => {
+              if (!modeBusy) {
+                setModeDialog('closed');
+              }
+            }}
+          />
+          <motion.div
+            key="mode-panel"
+            role="dialog"
+            aria-modal
+            initial={{opacity: 0, y: 16, scale: 0.98}}
+            animate={{opacity: 1, y: 0, scale: 1}}
+            exit={{opacity: 0, y: 12, scale: 0.98}}
+            transition={{type: 'spring', damping: 28, stiffness: 320}}
+            className="fixed left-1/2 top-1/2 z-[90] w-[min(92vw,400px)] -translate-x-1/2 -translate-y-1/2 rounded-3xl border border-slate-100 bg-white p-6 shadow-2xl"
+          >
+            {modeDialog === 'poly-read' ? (
+              <div className="space-y-4">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-rose-500">开启众乐乐之前</p>
+                <p className="whitespace-pre-line text-sm leading-6 text-slate-700">{polyModePrelude}</p>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={modeBusy}
+                    onClick={() => {
+                      if (!modeBusy) {
+                        setModeDialog('closed');
+                      }
+                    }}
+                    className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-black text-slate-600"
+                  >
+                    我先不了
+                  </button>
+                  <button
+                    type="button"
+                    disabled={modeBusy}
+                    onClick={() => {
+                      setModeError(null);
+                      setModeDialog('poly-oath');
+                    }}
+                    className="flex-1 rounded-2xl bg-slate-950 py-3 text-sm font-black text-white"
+                  >
+                    继续
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <p className="text-xs font-black uppercase tracking-[0.2em] text-violet-600">最后一步 · 宣誓</p>
+                <p className="text-xs leading-5 text-slate-500">
+                  请输入完整口令（二选一），表示你已读完上文并自行承担选择：
+                </p>
+                <input
+                  value={oathDraft}
+                  onChange={(e) => setOathDraft(e.target.value)}
+                  placeholder={polyOathPlaceholder}
+                  className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-violet-400"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                />
+                {modeError ? <p className="text-xs font-bold text-rose-600">{modeError}</p> : null}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    disabled={modeBusy}
+                    onClick={() => setModeDialog('poly-read')}
+                    className="flex-1 rounded-2xl border border-slate-200 py-3 text-sm font-black text-slate-600"
+                  >
+                    返回
+                  </button>
+                  <button
+                    type="button"
+                    disabled={modeBusy}
+                    onClick={async () => {
+                      const t = oathDraft.trim();
+                      if (t !== '我是渣男' && t !== '我是渣女') {
+                        setModeError('须完整输入「我是渣男」或「我是渣女」。');
+                        return;
+                      }
+                      setModeBusy(true);
+                      setModeError(null);
+                      try {
+                        await onEnablePoly(t);
+                        setModeDialog('closed');
+                        setOathDraft('');
+                      } catch (e) {
+                        setModeError(e instanceof Error ? e.message : String(e));
+                      } finally {
+                        setModeBusy(false);
+                      }
+                    }}
+                    className="flex-1 rounded-2xl bg-gradient-to-r from-violet-600 to-rose-500 py-3 text-sm font-black text-white"
+                  >
+                    {modeBusy ? '提交中…' : '确认开启'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </>
+      ) : null}
+    </AnimatePresence>
+    </>
   );
 }
 
 type RecordDraft = Pick<
   IntimacyRecord,
   'type' | 'protection' | 'consentChecked' | 'sharedWithPartner' | 'rating'
->;
+> & {
+  /** 众乐乐且多位搭子时，记录或同步要指向的伴侣用户 id */
+  targetPartnerId?: string;
+};
 
 function RecordSheet({
   isOpen,
   advice,
-  partnerLinked,
+  partnerHub,
   topBanter,
   onClose,
   onSave,
 }: {
   isOpen: boolean;
   advice: HealthAdvice;
-  partnerLinked?: boolean;
+  partnerHub: PartnerHub;
   topBanter?: string | null;
   onClose: () => void;
   onSave: (draft: RecordDraft) => void;
@@ -1912,8 +2261,24 @@ function RecordSheet({
   const [rating, setRating] = useState(4);
   const [consentChecked, setConsentChecked] = useState(true);
   const [sharedWithPartner, setSharedWithPartner] = useState(false);
-  const linked = Boolean(partnerLinked);
-  const shareMode = linked && sharedWithPartner;
+  const [targetPartnerId, setTargetPartnerId] = useState('');
+
+  const mode = normalizeRelationshipMode(partnerHub.relationshipMode);
+  const linkedRows = useMemo(
+    () => (partnerHub.partners ?? []).filter((p) => p.status === 'linked' && p.partnerId),
+    [partnerHub],
+  );
+  const partnerLinked = linkedRows.length > 0;
+  const shareMode = partnerLinked && sharedWithPartner;
+  const pickPartner = mode === 'poly' && linkedRows.length > 1;
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+    const ids = linkedRows.map((r) => r.partnerId).filter(Boolean) as string[];
+    setTargetPartnerId((prev) => (ids.includes(prev) ? prev : ids[0] ?? ''));
+  }, [isOpen, linkedRows]);
 
   return (
     <AnimatePresence>
@@ -1985,13 +2350,32 @@ function RecordSheet({
               <ToggleRow
                 checked={sharedWithPartner}
                 label="共享给已绑定伴侣"
-                disabled={!linked && !sharedWithPartner}
+                disabled={!partnerLinked && !sharedWithPartner}
                 onChange={setSharedWithPartner}
               />
-              {!linked ? (
+              {!partnerLinked ? (
                 <p className="text-xs leading-5 text-amber-700">绑定伴侣后，才能向对方发起「法法同步」申请（对方需在收件箱确认）。</p>
               ) : null}
-              {linked && sharedWithPartner ? (
+              {pickPartner ? (
+                <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-4">
+                  <p className="text-xs font-black text-violet-900">众乐乐 · 选择本次对象</p>
+                  <p className="mt-1 text-[11px] font-semibold leading-5 text-violet-800/85">
+                    私密保存与「法法同步」都要指明是哪位搭子，避免张冠李戴。
+                  </p>
+                  <select
+                    value={targetPartnerId}
+                    onChange={(e) => setTargetPartnerId(e.target.value)}
+                    className="mt-3 w-full rounded-2xl border border-violet-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-violet-400"
+                  >
+                    {linkedRows.map((r) => (
+                      <option key={r.partnerId} value={r.partnerId}>
+                        {r.peerNickname?.trim() || r.partnerId}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : null}
+              {partnerLinked && sharedWithPartner ? (
                 <p className="text-xs leading-5 text-slate-500">
                   不会立刻写入双方记录：对方在「伴侣 → 法法同步收件箱」接受后，才会各自生成一条带评分的同步记录。
                 </p>
@@ -1999,7 +2383,16 @@ function RecordSheet({
             </div>
             <div className="ios-safe-bottom border-t border-slate-100 bg-white p-6">
               <button
-                onClick={() => onSave({type, protection, rating, consentChecked, sharedWithPartner})}
+                onClick={() =>
+                  onSave({
+                    type,
+                    protection,
+                    rating,
+                    consentChecked,
+                    sharedWithPartner,
+                    ...(pickPartner && targetPartnerId ? {targetPartnerId} : {}),
+                  })
+                }
                 className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 py-4 text-lg font-black text-white active:scale-[0.99]"
               >
                 {shareMode ? <Send size={22} /> : <CheckCircle2 size={22} />}
@@ -2528,7 +2921,7 @@ function predictCycle(cycle: CycleRecord, records: IntimacyRecord[]): CyclePredi
   const nextEnd = addDays(nextStart, 5);
   const fertileStart = addDays(nextStart, -15);
   const fertileEnd = addDays(nextStart, -10);
-  const now = new Date(isoDate(new Date()));
+  const now = new Date();
   const inPeriod = now >= nextStart && now <= nextEnd;
   const inFertile = now >= fertileStart && now <= fertileEnd;
   const tooFrequent = recordCountOnRecentUtcDays(records, new Date(), 2) >= 2;
@@ -2599,14 +2992,9 @@ function buildTags(draft: RecordDraft, riskLevel: RiskLevel) {
   ];
 }
 
-/** Count records whose occurredAt (UTC yyyy-MM-dd) falls within the last `daySpan` UTC calendar days ending at `anchor`. */
+/** Count records whose occurredAt (yyyy-MM-dd) falls within the last `daySpan` 个东八区自然日（含 anchor 当日） */
 function recordCountOnRecentUtcDays(records: IntimacyRecord[], anchor: Date, daySpan: number): number {
   if (daySpan < 1 || records.length === 0) return 0;
-  const allowed = new Set<string>();
-  for (let i = 0; i < daySpan; i++) {
-    const d = new Date(anchor.getTime());
-    d.setUTCDate(d.getUTCDate() - i);
-    allowed.add(isoDate(d));
-  }
+  const allowed = recentShanghaiCalendarDays(anchor, daySpan);
   return records.filter((r) => allowed.has(r.occurredAt)).length;
 }

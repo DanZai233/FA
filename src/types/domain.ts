@@ -20,6 +20,9 @@ export type RiskLevel = 'low' | 'medium' | 'high';
 
 export type PartnerLinkStatus = 'none' | 'pending' | 'linked';
 
+/** exclusive：道德标杆独乐乐（1v1）；poly：逆天价值观众乐乐（多伴侣） */
+export type RelationshipMode = 'exclusive' | 'poly';
+
 export type PhraseSlot = 'tone' | 'subject' | 'action' | 'ending';
 
 export interface UserProfile {
@@ -31,6 +34,7 @@ export interface UserProfile {
   role: UserRole;
   adultConfirmed: boolean;
   partnerStatus?: PartnerLinkStatus;
+  relationshipMode?: RelationshipMode;
   privacyLock?: boolean;
   email?: string;
 }
@@ -46,6 +50,15 @@ export interface PartnerLinkWire {
   confirmedAt?: string;
 }
 
+export interface PartnerWire extends PartnerLinkWire {
+  peerNickname?: string;
+}
+
+export interface PartnerHub {
+  relationshipMode: RelationshipMode;
+  partners: PartnerWire[];
+}
+
 export interface IntimacyRecord {
   id: string;
   occurredAt: string;
@@ -56,6 +69,8 @@ export interface IntimacyRecord {
   rating: number;
   riskLevel: RiskLevel;
   noteTags: string[];
+  /** 众乐乐下关联的伴侣用户 id */
+  partnerId?: string;
 }
 
 export interface CycleRecord {
@@ -104,6 +119,8 @@ export interface SocialPost {
   createdAt: string;
   reported?: boolean;
   blocked?: boolean;
+  /** 发布时服务端根据来源 IP 离线解析的展示文案（非精确定位） */
+  ipRegion?: string;
 }
 
 export interface PartnerMessage {
@@ -113,6 +130,7 @@ export interface PartnerMessage {
   authorNickname?: string;
   phrase: string;
   scene: string;
+  targetPeerId?: string;
   createdAt: string;
 }
 
@@ -147,6 +165,8 @@ export interface CreatePartnerShareBody {
   consentChecked: boolean;
   senderRating: number;
   senderRole: UserRole;
+  /** 众乐乐且多条关联时必填 */
+  targetPartnerId?: string;
 }
 
 export interface ShareRejectPhraseOption {
@@ -175,9 +195,30 @@ export interface DataExport {
   exported: string;
 }
 
+export interface UpdateMeBody {
+  nickname?: string;
+  squareAlias?: string;
+  role?: UserRole;
+  privacyLock?: boolean;
+  relationshipMode?: RelationshipMode;
+  /** 首次切换到 poly 时须传：我是渣男 或 我是渣女 */
+  polyOath?: string;
+}
+
 export interface MatchCard {
   id: string;
   alias: string;
   phrase: string;
   expiresAt: string;
+}
+
+export function normalizeRelationshipMode(raw?: string): RelationshipMode {
+  return raw === 'poly' ? 'poly' : 'exclusive';
+}
+
+export function partnerStatusFromHub(hub: PartnerHub | null): PartnerLinkStatus {
+  if (!hub?.partners?.length) return 'none';
+  if (hub.partners.some((p) => p.status === 'linked')) return 'linked';
+  if (hub.partners.some((p) => p.status === 'pending')) return 'pending';
+  return 'none';
 }

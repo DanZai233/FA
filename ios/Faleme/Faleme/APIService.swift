@@ -8,8 +8,26 @@ struct APIService {
         try await request("/api/v1/me")
     }
 
-    func updateMe(nickname: String? = nil, squareAlias: String? = nil, role: UserRole? = nil, privacyLock: Bool? = nil) async throws -> UserProfile {
-        try await request("/api/v1/me", method: "PUT", body: UpdateProfilePayload(nickname: nickname, squareAlias: squareAlias, role: role, privacyLock: privacyLock))
+    func updateMe(
+        nickname: String? = nil,
+        squareAlias: String? = nil,
+        role: UserRole? = nil,
+        privacyLock: Bool? = nil,
+        relationshipMode: String? = nil,
+        polyOath: String? = nil
+    ) async throws -> UserProfile {
+        try await request(
+            "/api/v1/me",
+            method: "PUT",
+            body: UpdateProfilePayload(
+                nickname: nickname,
+                squareAlias: squareAlias,
+                role: role,
+                privacyLock: privacyLock,
+                relationshipMode: relationshipMode,
+                polyOath: polyOath
+            )
+        )
     }
 
     func records() async throws -> [IntimacyRecord] {
@@ -56,24 +74,39 @@ struct APIService {
         try await request("/api/v1/partners/messages")
     }
 
-    func partner() async throws -> PartnerLink {
+    func partner() async throws -> PartnerHub {
         try await request("/api/v1/partners")
     }
 
-    func createPartnerInvite() async throws -> PartnerLink {
+    func createPartnerInvite() async throws -> PartnerWire {
         try await request("/api/v1/partners/invite", method: "POST", body: [String: String]())
     }
 
-    func acceptPartnerInvite(inviteCode: String) async throws -> PartnerLink {
+    func acceptPartnerInvite(inviteCode: String) async throws -> PartnerWire {
         try await request("/api/v1/partners/accept", method: "POST", body: ["inviteCode": inviteCode])
     }
 
-    func unlinkPartner() async throws -> PartnerLink {
-        try await request("/api/v1/partners", method: "DELETE", body: [String: String]())
+    func unlinkPartner(peerId: String? = nil) async throws -> PartnerHub {
+        var comp = URLComponents(url: baseURL.appending(path: "/api/v1/partners"), resolvingAgainstBaseURL: false)!
+        if let peerId, !peerId.isEmpty {
+            comp.queryItems = [URLQueryItem(name: "peerId", value: peerId)]
+        }
+        guard let url = comp.url else {
+            throw URLError(.badURL)
+        }
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.setValue(deviceID, forHTTPHeaderField: "X-Faleme-Device-ID")
+        let (data, response) = try await URLSession.shared.data(for: req)
+        guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(PartnerHub.self, from: data)
     }
 
-    func createPartnerMessage(phrase: String) async throws -> PartnerMessage {
-        try await request("/api/v1/partners/messages", method: "POST", body: ["phrase": phrase, "scene": "partner"])
+    func createPartnerMessage(phrase: String, targetPartnerId: String? = nil) async throws -> PartnerMessage {
+        try await request("/api/v1/partners/messages", method: "POST", body: PartnerMessagePayload(phrase: phrase, scene: "partner", targetPartnerId: targetPartnerId))
     }
 
     func partnerShareRequests() async throws -> PartnerShareWire {
@@ -161,4 +194,39 @@ private struct UpdateProfilePayload: Encodable {
     var squareAlias: String?
     var role: UserRole?
     var privacyLock: Bool?
+    var relationshipMode: String?
+    var polyOath: String?
+
+    enum CodingKeys: String, CodingKey {
+        case nickname, squareAlias, role, privacyLock, relationshipMode, polyOath
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(nickname, forKey: .nickname)
+        try c.encodeIfPresent(squareAlias, forKey: .squareAlias)
+        try c.encodeIfPresent(role, forKey: .role)
+        try c.encodeIfPresent(privacyLock, forKey: .privacyLock)
+        try c.encodeIfPresent(relationshipMode, forKey: .relationshipMode)
+        try c.encodeIfPresent(polyOath, forKey: .polyOath)
+    }
+}
+
+private struct PartnerMessagePayload: Encodable {
+    var phrase: String
+    var scene: String
+    var targetPartnerId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case phrase, scene, targetPartnerId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(phrase, forKey: .phrase)
+        try c.encode(scene, forKey: .scene)
+        if let targetPartnerId, !targetPartnerId.isEmpty {
+            try c.encode(targetPartnerId, forKey: .targetPartnerId)
+        }
+    }
 }

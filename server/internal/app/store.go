@@ -60,7 +60,7 @@ type MemoryStore struct {
 	devices       map[string]string
 	emailIndex    map[string]string
 	passwords     map[string]string
-	partners      map[string]PartnerLink
+	partnerSlots  map[string][]PartnerLink
 	messages      map[string][]PartnerMessage
 	records       map[string][]IntimacyRecord
 	cycles        map[string][]CycleRecord
@@ -76,16 +76,16 @@ func NewMemoryStore() *MemoryStore {
 func NewMemoryStoreWithPersistence(persist *PostgresPersistence) *MemoryStore {
 	now := time.Now()
 	store := &MemoryStore{
-		persist:    persist,
-		users:      map[string]User{},
-		tokens:     map[string]string{},
-		devices:    map[string]string{},
-		emailIndex: map[string]string{},
-		passwords:  map[string]string{},
-		partners:   map[string]PartnerLink{},
-		messages:   map[string][]PartnerMessage{},
-		records:    map[string][]IntimacyRecord{},
-		cycles:     map[string][]CycleRecord{},
+		persist:      persist,
+		users:        map[string]User{},
+		tokens:       map[string]string{},
+		devices:      map[string]string{},
+		emailIndex:   map[string]string{},
+		passwords:    map[string]string{},
+		partnerSlots: map[string][]PartnerLink{},
+		messages:     map[string][]PartnerMessage{},
+		records:      map[string][]IntimacyRecord{},
+		cycles:       map[string][]CycleRecord{},
 		posts: []SocialPost{
 			{ID: "post-1", AuthorAlias: "匿名安全员", Phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", ResonanceCount: 128, CreatedAt: now.Add(-24 * time.Hour)},
 			{ID: "post-2", AuthorAlias: "匿名嘴硬人", Phrase: "嘴硬但诚实 / 我的荷尔蒙 / 建议冷静三分钟 / 先喝水再说", ResonanceCount: 64, CreatedAt: now.Add(-72 * time.Hour)},
@@ -100,7 +100,7 @@ func NewMemoryStoreWithPersistence(persist *PostgresPersistence) *MemoryStore {
 		{ID: "rec-2", UserID: user.ID, OccurredAt: formatDate(now.AddDate(0, 0, -8)), Type: IntimacySolo, Protection: ProtectionNotSure, ConsentChecked: true, SharedWithPartner: false, Rating: 4, RiskLevel: RiskLow, NoteTags: []string{"单人排解", "睡前放松"}, CreatedAt: now.AddDate(0, 0, -8)},
 	}
 	store.cycles[user.ID] = []CycleRecord{{ID: "cycle-1", UserID: user.ID, PeriodStart: formatDate(now.AddDate(0, 0, -20)), PeriodEnd: formatDate(now.AddDate(0, 0, -16)), CycleLength: 29, CreatedAt: now.AddDate(0, 0, -20)}}
-	store.partners[user.ID] = PartnerLink{ID: "partner-1", UserID: user.ID, PartnerID: "u-partner", InviteCode: "DEMO01", Status: "linked", CanShare: true, CreatedAt: now.AddDate(0, 0, -5), ConfirmedAt: now.AddDate(0, 0, -5)}
+	store.partnerSlots[user.ID] = []PartnerLink{{ID: "partner-1", UserID: user.ID, PartnerID: "u-partner", InviteCode: "DEMO01", Status: "linked", CanShare: true, CreatedAt: now.AddDate(0, 0, -5), ConfirmedAt: now.AddDate(0, 0, -5)}}
 	if state, err := persist.Load(); err == nil && state != nil {
 		store.applyState(*state)
 	} else if err == nil {
@@ -275,6 +275,29 @@ func (s *MemoryStore) UpdateUser(userID string, req UpdateProfileRequest) (User,
 	if req.PrivacyLock != nil {
 		user.PrivacyLock = *req.PrivacyLock
 	}
+	if req.RelationshipMode != nil {
+		mode := strings.TrimSpace(*req.RelationshipMode)
+		switch mode {
+		case RelationshipPoly:
+			if effectiveRelationshipMode(user) != RelationshipPoly {
+				oath := ""
+				if req.PolyOath != nil {
+					oath = strings.TrimSpace(*req.PolyOath)
+				}
+				if oath != PolyOathMale && oath != PolyOathFemale {
+					return User{}, ErrPolyOathInvalid
+				}
+			}
+			user.RelationshipMode = RelationshipPoly
+		case RelationshipExclusive, "":
+			if countLinkedSlots(s.partnerSlots[userID]) > 1 {
+				return User{}, ErrExclusiveTooManyPartners
+			}
+			user.RelationshipMode = ""
+		default:
+			return User{}, ErrInvalidRelationshipModeValue
+		}
+	}
 	s.users[userID] = user
 	s.persistLocked()
 	return user, nil
@@ -358,75 +381,6 @@ func (s *MemoryStore) AddCycle(userID string, cycle CycleRecord) CycleRecord {
 	return cycle
 }
 
-func (s *MemoryStore) Partner(userID string) (PartnerLink, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	if link, ok := s.partners[userID]; ok {
-		return link, nil
-	}
-	return PartnerLink{Status: "none"}, nil
-}
-
-func (s *MemoryStore) UnlinkPartner(userID string) PartnerLink {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	link := s.partners[userID]
-	partnerID := link.PartnerID
-	if partnerID != "" {
-		if pl, ok := s.partners[partnerID]; ok {
-			pl.Status = "none"
-			pl.PartnerID = ""
-			pl.InviteCode = ""
-			pl.CanShare = false
-			pl.ConfirmedAt = time.Time{}
-			s.partners[partnerID] = pl
-		}
-	}
-	link.Status = "none"
-	link.PartnerID = ""
-	link.InviteCode = ""
-	link.CanShare = false
-	link.ConfirmedAt = time.Time{}
-	s.partners[userID] = link
-	s.persistLocked()
-	return link
-}
-
-func (s *MemoryStore) CreateInvite(userID string) (PartnerLink, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if link, ok := s.partners[userID]; ok && link.Status == "linked" {
-		return PartnerLink{}, errPartnerLinked
-	}
-	var code string
-	for i := 0; i < 48; i++ {
-		code = randomPartnerCode()
-		if !s.partnerInviteTakenLocked(code) {
-			break
-		}
-	}
-	link := PartnerLink{
-		ID:         fmt.Sprintf("partner-%d", time.Now().UnixNano()),
-		UserID:     userID,
-		InviteCode: code,
-		Status:     "pending",
-		CanShare:   false,
-		CreatedAt:  time.Now(),
-	}
-	s.partners[userID] = link
-	s.persistLocked()
-	return link, nil
-}
-
-func (s *MemoryStore) partnerInviteTakenLocked(code string) bool {
-	for _, v := range s.partners {
-		if strings.EqualFold(v.InviteCode, code) && (v.Status == "pending" || v.Status == "linked") {
-			return true
-		}
-	}
-	return false
-}
-
 func randomPartnerCode() string {
 	const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
 	b := make([]byte, 6)
@@ -435,49 +389,6 @@ func randomPartnerCode() string {
 		b[i] = chars[int(b[i])%len(chars)]
 	}
 	return string(b)
-}
-
-func (s *MemoryStore) AcceptInvite(accepterID, inviteCode string) (PartnerLink, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	code := strings.TrimSpace(strings.ToUpper(inviteCode))
-	if code == "" {
-		return PartnerLink{}, errInvalidInvite
-	}
-	var inviterID string
-	for uid, link := range s.partners {
-		if link.Status == "pending" && strings.EqualFold(strings.TrimSpace(link.InviteCode), code) {
-			inviterID = uid
-			break
-		}
-	}
-	if inviterID == "" {
-		return PartnerLink{}, errInvalidInvite
-	}
-	if inviterID == accepterID {
-		return PartnerLink{}, errSelfPartner
-	}
-	now := time.Now()
-	inv := s.partners[inviterID]
-	inv.Status = "linked"
-	inv.PartnerID = accepterID
-	inv.CanShare = true
-	inv.ConfirmedAt = now
-	s.partners[inviterID] = inv
-
-	ac := PartnerLink{
-		ID:          fmt.Sprintf("partner-%d", time.Now().UnixNano()),
-		UserID:      accepterID,
-		PartnerID:   inviterID,
-		InviteCode:  inv.InviteCode,
-		Status:      "linked",
-		CanShare:    true,
-		CreatedAt:   now,
-		ConfirmedAt: now,
-	}
-	s.partners[accepterID] = ac
-	s.persistLocked()
-	return ac, nil
 }
 
 func (s *MemoryStore) PartnerMessages(userID string) []PartnerMessage {
@@ -500,33 +411,6 @@ func (s *MemoryStore) PartnerMessages(userID string) []PartnerMessage {
 		}
 	}
 	return list
-}
-
-func (s *MemoryStore) AddPartnerMessage(userID, phrase, scene string) PartnerMessage {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	message := PartnerMessage{
-		ID:        fmt.Sprintf("msg-%d", time.Now().UnixNano()),
-		UserID:    userID,
-		Phrase:    fallback(phrase, "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感"),
-		Scene:     fallback(scene, "partner"),
-		CreatedAt: time.Now(),
-	}
-	if u, ok := s.users[userID]; ok {
-		nick := strings.TrimSpace(u.Nickname)
-		if nick == "" {
-			nick = "未设置"
-		}
-		message.AuthorNickname = nick
-	} else {
-		message.AuthorNickname = "未设置"
-	}
-	s.messages[userID] = append([]PartnerMessage{message}, s.messages[userID]...)
-	if link, ok := s.partners[userID]; ok && link.Status == "linked" && link.PartnerID != "" {
-		s.messages[link.PartnerID] = append([]PartnerMessage{message}, s.messages[link.PartnerID]...)
-	}
-	s.persistLocked()
-	return message
 }
 
 func (s *MemoryStore) prependPartnerInboxOnlyLocked(targetUserID string, msg PartnerMessage) {
@@ -553,36 +437,6 @@ func (s *MemoryStore) lockedPartnerNick(uid string) string {
 		}
 	}
 	return "未设置"
-}
-
-func (s *MemoryStore) CreatePartnerShareRequest(fromID string, body CreatePartnerShareBody) (PartnerShareRequest, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	link, ok := s.partners[fromID]
-	if !ok || link.Status != "linked" || strings.TrimSpace(link.PartnerID) == "" {
-		return PartnerShareRequest{}, errPartnerNotLinked
-	}
-	toID := link.PartnerID
-	occ := strings.TrimSpace(body.OccurredAt)
-	if occ == "" {
-		occ = formatDate(time.Now())
-	}
-	req := PartnerShareRequest{
-		ID:             fmt.Sprintf("shr-%d", time.Now().UnixNano()),
-		FromUserID:     fromID,
-		ToUserID:       toID,
-		Status:         "pending",
-		SenderRole:     body.SenderRole,
-		OccurredAt:     occ,
-		Type:           body.Type,
-		Protection:     body.Protection,
-		ConsentChecked: body.ConsentChecked,
-		SenderRating:   clampRating(body.SenderRating),
-		CreatedAt:      time.Now(),
-	}
-	s.shareRequests = append([]PartnerShareRequest{req}, s.shareRequests...)
-	s.persistLocked()
-	return req, nil
 }
 
 func (s *MemoryStore) PartnerShareRequests(userID string) PartnerShareRequestsWire {
@@ -706,7 +560,7 @@ func (s *MemoryStore) Posts() []SocialPost {
 	return posts
 }
 
-func (s *MemoryStore) AddPost(userID, phrase string) SocialPost {
+func (s *MemoryStore) AddPost(userID, phrase, ipRegion string) SocialPost {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	author := "匿名成年人"
@@ -717,7 +571,14 @@ func (s *MemoryStore) AddPost(userID, phrase string) SocialPost {
 			author = defaultSquareAlias(userID)
 		}
 	}
-	post := SocialPost{ID: fmt.Sprintf("post-%d", time.Now().UnixNano()), UserID: userID, AuthorAlias: author, Phrase: phrase, CreatedAt: time.Now()}
+	post := SocialPost{
+		ID:          fmt.Sprintf("post-%d", time.Now().UnixNano()),
+		UserID:      userID,
+		AuthorAlias: author,
+		Phrase:      phrase,
+		IPRegion:    strings.TrimSpace(ipRegion),
+		CreatedAt:   time.Now(),
+	}
 	s.posts = append([]SocialPost{post}, s.posts...)
 	s.persistLocked()
 	return post
@@ -766,7 +627,13 @@ func (s *MemoryStore) Report(userID string, req CreateReportRequest) Report {
 func (s *MemoryStore) Export(user User) DataExport {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	link := s.partners[user.ID]
+	link := PartnerLink{Status: "none"}
+	for _, pl := range s.partnerSlots[user.ID] {
+		if pl.Status == "linked" && strings.TrimSpace(pl.PartnerID) != "" {
+			link = pl
+			break
+		}
+	}
 	reports := make([]Report, 0, len(s.reports))
 	for _, report := range s.reports {
 		if report.UserID == user.ID {
@@ -808,7 +675,7 @@ func (s *MemoryStore) DeleteUser(userID string) {
 	s.users[userID] = user
 	delete(s.records, userID)
 	delete(s.cycles, userID)
-	delete(s.partners, userID)
+	s.purgePartnerEdgesLocked(userID)
 	delete(s.messages, userID)
 	for token, tokenUserID := range s.tokens {
 		if tokenUserID == userID {
@@ -846,7 +713,7 @@ func (s *MemoryStore) applyState(state persistentState) {
 	s.devices = state.Devices
 	s.emailIndex = state.EmailIndex
 	s.passwords = state.Passwords
-	s.partners = state.Partners
+	s.partnerSlots = migrateLegacyPartnersMap(state.Partners, state.PartnerSlots)
 	s.messages = state.Messages
 	s.records = state.Records
 	s.cycles = state.Cycles
@@ -878,8 +745,8 @@ func (s *MemoryStore) applyState(state persistentState) {
 			}
 		}
 	}
-	if s.partners == nil {
-		s.partners = map[string]PartnerLink{}
+	if s.partnerSlots == nil {
+		s.partnerSlots = map[string][]PartnerLink{}
 	}
 	if s.messages == nil {
 		s.messages = map[string][]PartnerMessage{}
@@ -912,7 +779,7 @@ func (s *MemoryStore) persistLocked() {
 		Devices:       s.devices,
 		EmailIndex:    s.emailIndex,
 		Passwords:     s.passwords,
-		Partners:      s.partners,
+		PartnerSlots:  s.partnerSlots,
 		Messages:      s.messages,
 		Records:       s.records,
 		Cycles:        s.cycles,

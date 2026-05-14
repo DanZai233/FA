@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/jackc/pgx/v5 v5.9.2
+	github.com/lionsoul2014/ip2region/binding/golang v0.0.0-20260509115213-59cf54710765
 	golang.org/x/crypto v0.36.0
 )
 

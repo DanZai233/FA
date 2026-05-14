@@ -148,8 +148,16 @@ func buildRecordTags(record IntimacyRecord) []string {
 	return tags
 }
 
+var shanghaiTZ = func() *time.Location {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.FixedZone("CST", 8*3600)
+	}
+	return loc
+}()
+
 func formatDate(t time.Time) string {
-	return t.Format("2006-01-02")
+	return t.In(shanghaiTZ).Format("2006-01-02")
 }
 
 func truncateDate(t time.Time) time.Time {
@@ -170,7 +178,7 @@ func countRecordsBetweenCalendarDates(records []IntimacyRecord, startDay, endDay
 	}
 	n := 0
 	for _, r := range records {
-		t, err := time.Parse("2006-01-02", r.OccurredAt)
+		t, err := time.ParseInLocation("2006-01-02", r.OccurredAt, shanghaiTZ)
 		if err != nil {
 			continue
 		}

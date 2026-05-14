@@ -1,7 +1,8 @@
 import type {UserRole} from '../types/domain';
+import {shanghaiCalendarDay} from '../datetime';
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return shanghaiCalendarDay(new Date());
 }
 
 /** 今日点击首页「法了 / 被法了」大按钮次数（按用户、按自然日）。 */

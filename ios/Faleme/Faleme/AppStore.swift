@@ -26,7 +26,8 @@ final class AppStore: ObservableObject {
     )
     @Published var posts: [SocialPost] = []
     @Published var match: MatchCard?
-    @Published var partnerLink: PartnerLink?
+    @Published var partnerHub: PartnerHub?
+    @Published var relationshipMode: String = "exclusive"
     @Published var partnerMessages: [PartnerMessage] = []
     @Published var partnerShareInbox: [PartnerShareRequest] = []
     @Published var partnerShareOutbox: [PartnerShareRequest] = []
@@ -47,6 +48,24 @@ final class AppStore: ObservableObject {
     init(api: APIService) {
         self.api = api
         self.role = UserRole(rawValue: UserDefaults.standard.string(forKey: "faleme.role") ?? "") ?? .initiator
+    }
+
+    var linkedPartnerWires: [PartnerWire] {
+        (partnerHub?.partners ?? []).filter { $0.status == "linked" && !($0.partnerId?.isEmpty ?? true) }
+    }
+
+    var primaryPartnerWire: PartnerWire? {
+        guard let hub = partnerHub else { return nil }
+        if let p = hub.partners.first(where: { $0.status == "pending" }) { return p }
+        return hub.partners.first(where: { $0.status == "linked" && !($0.partnerId?.isEmpty ?? true) })
+    }
+
+    var anyPartnerLinked: Bool {
+        !linkedPartnerWires.isEmpty
+    }
+
+    func effectiveRelationshipMode() -> String {
+        partnerHub?.relationshipMode ?? relationshipMode
     }
 
     func setRole(_ role: UserRole) {
@@ -130,7 +149,7 @@ final class AppStore: ObservableObject {
             self.knowledgeCards = try await knowledgeCards
             self.prediction = try await prediction.todayAdvice
             self.reminder = try await reminder
-            self.partnerLink = try? await partner
+            self.partnerHub = try await partner
             self.partnerMessages = try await partnerMessages
             if let wire = try? await shareWire {
                 partnerShareInbox = wire.inbox
@@ -154,6 +173,7 @@ final class AppStore: ObservableObject {
         profileSquareAlias = me.squareAlias ?? ""
         privacyLockEnabled = me.privacyLock ?? true
         role = me.role
+        relationshipMode = me.relationshipMode ?? "exclusive"
         UserDefaults.standard.set(me.role.rawValue, forKey: "faleme.role")
     }
 
@@ -182,6 +202,10 @@ final class AppStore: ObservableObject {
     }
 
     func refreshCompanionData() async {
+        if let hub = try? await api.partner() {
+            partnerHub = hub
+            relationshipMode = hub.relationshipMode
+        }
         if let wire = try? await api.partnerShareRequests() {
             partnerShareInbox = wire.inbox
             partnerShareOutbox = wire.outbox
@@ -215,16 +239,29 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func addRecord(type: IntimacyType, protection: ProtectionMethod, rating: Int, consentChecked: Bool, sharedWithPartner: Bool) async {
-        let linked = partnerLink?.status == "linked"
+    func addRecord(type: IntimacyType, protection: ProtectionMethod, rating: Int, consentChecked: Bool, sharedWithPartner: Bool, targetPartnerId: String?) async {
+        let linkedList = linkedPartnerWires
+        let linked = !linkedList.isEmpty
+        let poly = effectiveRelationshipMode() == "poly"
+        let multi = poly && linkedList.count > 1
+
         if sharedWithPartner && linked {
+            var tid = targetPartnerId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if tid?.isEmpty ?? true {
+                tid = linkedList.count == 1 ? linkedList[0].partnerId : nil
+            }
+            if multi, tid == nil || tid?.isEmpty == true {
+                flashHomeEcho("众乐乐：请选择法法同步的对象。")
+                return
+            }
             let body = CreatePartnerShareBody(
                 occurredAt: Self.todayString,
                 type: type,
                 protection: protection,
                 consentChecked: consentChecked,
                 senderRating: min(5, max(1, rating)),
-                senderRole: role
+                senderRole: role,
+                targetPartnerId: tid
             )
             do {
                 _ = try await api.createPartnerShareRequest(body)
@@ -234,6 +271,15 @@ final class AppStore: ObservableObject {
             } catch {
                 isOfflineDemo = true
             }
+            return
+        }
+
+        var pid: String? = targetPartnerId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if pid?.isEmpty ?? true {
+            pid = linkedList.count == 1 ? linkedList[0].partnerId : nil
+        }
+        if multi, pid == nil || pid?.isEmpty == true {
+            flashHomeEcho("众乐乐：请先选择本次记录关联的搭子。")
             return
         }
 
@@ -248,7 +294,8 @@ final class AppStore: ObservableObject {
             rating: rating,
             riskLevel: protection == .none ? .high : .low,
             noteTags: [type.title, protection.title],
-            createdAt: nil
+            createdAt: nil,
+            partnerId: pid
         )
         records.insert(record, at: 0)
         do {
@@ -273,11 +320,19 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func sendPartnerMessage(phrase: String) async {
-        let optimistic = PartnerMessage(id: "local-msg-\(Date().timeIntervalSince1970)", userId: "local", authorNickname: profileNickname, phrase: phrase, scene: "partner", createdAt: Self.todayString)
+    func sendPartnerMessage(phrase: String, targetPartnerId: String? = nil) async {
+        let optimistic = PartnerMessage(
+            id: "local-msg-\(Date().timeIntervalSince1970)",
+            userId: "local",
+            authorNickname: profileNickname,
+            phrase: phrase,
+            scene: "partner",
+            targetPeerId: targetPartnerId,
+            createdAt: Self.todayString
+        )
         partnerMessages.insert(optimistic, at: 0)
         do {
-            let saved = try await api.createPartnerMessage(phrase: phrase)
+            let saved = try await api.createPartnerMessage(phrase: phrase, targetPartnerId: targetPartnerId)
             if let index = partnerMessages.firstIndex(where: { $0.id == optimistic.id }) {
                 partnerMessages[index] = saved
             }
@@ -288,33 +343,95 @@ final class AppStore: ObservableObject {
     }
 
     func togglePartnerLink() async {
-        if partnerLink?.status == "linked" || partnerLink?.status == "pending" {
+        let poly = effectiveRelationshipMode() == "poly"
+        let linkedList = linkedPartnerWires
+        let multiPoly = poly && linkedList.count > 1
+        if multiPoly {
             do {
-                partnerLink = try await api.unlinkPartner()
+                _ = try await api.createPartnerInvite()
+                if let hub = try? await api.partner() {
+                    partnerHub = hub
+                    relationshipMode = hub.relationshipMode
+                }
                 isOfflineDemo = false
             } catch {
-                partnerLink = nil
+                isOfflineDemo = true
+            }
+            return
+        }
+        let primary = primaryPartnerWire
+        if primary?.status == "linked" || primary?.status == "pending" {
+            do {
+                partnerHub = try await api.unlinkPartner(peerId: nil)
+                relationshipMode = partnerHub?.relationshipMode ?? relationshipMode
+                isOfflineDemo = false
+            } catch {
+                partnerHub = nil
                 isOfflineDemo = true
             }
         } else {
             do {
-                partnerLink = try await api.createPartnerInvite()
+                _ = try await api.createPartnerInvite()
+                if let hub = try? await api.partner() {
+                    partnerHub = hub
+                    relationshipMode = hub.relationshipMode
+                }
                 isOfflineDemo = false
             } catch {
-                partnerLink = PartnerLink(id: "local-partner", userId: "local", partnerId: nil, inviteCode: "FALV1", status: "pending", canShare: false, createdAt: Self.todayString, confirmedAt: nil)
+                partnerHub = PartnerHub(relationshipMode: "exclusive", partners: [
+                    PartnerWire(id: "local-partner", userId: "local", partnerId: nil, inviteCode: "FALV1", status: "pending", canShare: false, createdAt: Self.todayString, confirmedAt: nil, peerNickname: nil)
+                ])
                 isOfflineDemo = true
             }
         }
     }
 
-    func acceptPartnerInvite(inviteCode: String) async {
+    func unlinkPartnerPeer(peerId: String) async {
         do {
-            partnerLink = try await api.acceptPartnerInvite(inviteCode: inviteCode)
+            partnerHub = try await api.unlinkPartner(peerId: peerId)
+            relationshipMode = partnerHub?.relationshipMode ?? relationshipMode
             isOfflineDemo = false
         } catch {
-            partnerLink = PartnerLink(id: "local-accepted", userId: "local", partnerId: "partner-by-\(inviteCode)", inviteCode: inviteCode, status: "linked", canShare: true, createdAt: Self.todayString, confirmedAt: Self.todayString)
             isOfflineDemo = true
         }
+    }
+
+    func acceptPartnerInvite(inviteCode: String) async {
+        do {
+            _ = try await api.acceptPartnerInvite(inviteCode: inviteCode)
+            if let hub = try? await api.partner() {
+                partnerHub = hub
+                relationshipMode = hub.relationshipMode
+            }
+            isOfflineDemo = false
+        } catch {
+            partnerHub = PartnerHub(relationshipMode: "exclusive", partners: [
+                PartnerWire(id: "local-accepted", userId: "local", partnerId: "partner-by-\(inviteCode)", inviteCode: inviteCode, status: "linked", canShare: true, createdAt: Self.todayString, confirmedAt: Self.todayString, peerNickname: nil)
+            ])
+            isOfflineDemo = true
+        }
+    }
+
+    func enablePolyMode(oath: String) async throws {
+        let me = try await api.updateMe(relationshipMode: "poly", polyOath: oath)
+        profileNickname = me.nickname
+        profileSquareAlias = me.squareAlias ?? ""
+        relationshipMode = me.relationshipMode ?? "poly"
+        if let hub = try? await api.partner() {
+            partnerHub = hub
+        }
+        isOfflineDemo = false
+    }
+
+    func disablePolyMode() async throws {
+        let me = try await api.updateMe(relationshipMode: "exclusive")
+        profileNickname = me.nickname
+        profileSquareAlias = me.squareAlias ?? ""
+        relationshipMode = me.relationshipMode ?? "exclusive"
+        if let hub = try? await api.partner() {
+            partnerHub = hub
+        }
+        isOfflineDemo = false
     }
 
     func saveCycle(periodStart: String, periodEnd: String?, cycleLength: Int) async {
@@ -347,7 +464,8 @@ final class AppStore: ObservableObject {
                     resonanceCount: 0,
                     createdAt: Self.todayString,
                     reported: false,
-                    blocked: false
+                    blocked: false,
+                    ipRegion: nil
                 ),
                 at: 0
             )
@@ -379,7 +497,8 @@ final class AppStore: ObservableObject {
                     resonanceCount: post.resonanceCount + 1,
                     createdAt: post.createdAt,
                     reported: post.reported,
-                    blocked: post.blocked
+                    blocked: post.blocked,
+                    ipRegion: post.ipRegion
                 )
             )
             isOfflineDemo = true
@@ -397,7 +516,8 @@ final class AppStore: ObservableObject {
                     resonanceCount: post.resonanceCount,
                     createdAt: post.createdAt,
                     reported: true,
-                    blocked: post.blocked
+                    blocked: post.blocked,
+                    ipRegion: post.ipRegion
                 )
             )
             isOfflineDemo = false
@@ -440,7 +560,8 @@ final class AppStore: ObservableObject {
             partnerShareInbox = []
             partnerShareOutbox = []
             shareRejectPhrases = []
-            partnerLink = nil
+            partnerHub = nil
+            relationshipMode = "exclusive"
             match = nil
             privacyMessage = "账号已删除。"
             isOfflineDemo = false
@@ -453,16 +574,19 @@ final class AppStore: ObservableObject {
 
     private func seedDemoData() {
         records = [
-            IntimacyRecord(id: "demo-1", userId: nil, occurredAt: Self.todayString, type: .penetrative, protection: .condom, consentChecked: true, sharedWithPartner: true, rating: 5, riskLevel: .low, noteTags: ["安全套上岗"])
+            IntimacyRecord(id: "demo-1", userId: nil, occurredAt: Self.todayString, type: .penetrative, protection: .condom, consentChecked: true, sharedWithPartner: true, rating: 5, riskLevel: .low, noteTags: ["安全套上岗"], createdAt: nil, partnerId: nil)
         ]
         role = UserRole(rawValue: UserDefaults.standard.string(forKey: "faleme.role") ?? "") ?? .initiator
-        partnerLink = PartnerLink(id: "demo-partner", userId: "demo", partnerId: nil, inviteCode: "FALV1", status: "pending", canShare: false, createdAt: Self.todayString, confirmedAt: nil)
+        relationshipMode = "exclusive"
+        partnerHub = PartnerHub(relationshipMode: "exclusive", partners: [
+            PartnerWire(id: "demo-partner", userId: "demo", partnerId: nil, inviteCode: "FALV1", status: "pending", canShare: false, createdAt: Self.todayString, confirmedAt: nil, peerNickname: nil)
+        ])
         posts = [
-            SocialPost(id: "post-1", authorAlias: "匿名安全员", phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", resonanceCount: 128, createdAt: Self.todayString, reported: false, blocked: false)
+            SocialPost(id: "post-1", authorAlias: "匿名安全员", phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", resonanceCount: 128, createdAt: Self.todayString, reported: false, blocked: false, ipRegion: nil)
         ]
         match = MatchCard(id: "match-demo", alias: "附近不存在的人", phrase: "今晚月色不错 / 这位成年人 / 申请抱抱 / 但安全第一", expiresAt: Self.todayString)
         partnerMessages = [
-            PartnerMessage(id: "msg-1", userId: "demo", authorNickname: "演示用户", phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", scene: "partner", createdAt: Self.todayString)
+            PartnerMessage(id: "msg-1", userId: "demo", authorNickname: "演示用户", phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", scene: "partner", targetPeerId: nil, createdAt: Self.todayString)
         ]
         partnerShareInbox = []
         partnerShareOutbox = []
@@ -481,9 +605,7 @@ final class AppStore: ObservableObject {
     }
 
     private static var todayString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+        FalemeDateFormatting.shanghaiCalendarToday()
     }
 }
 

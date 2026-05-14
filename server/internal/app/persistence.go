@@ -19,7 +19,8 @@ type persistentState struct {
 	Devices       map[string]string           `json:"devices"`
 	EmailIndex    map[string]string           `json:"emailIndex,omitempty"`
 	Passwords     map[string]string           `json:"passwords,omitempty"`
-	Partners      map[string]PartnerLink      `json:"partners"`
+	Partners      map[string]PartnerLink      `json:"partners,omitempty"`     // 旧版单槽，加载时迁移到 PartnerSlots
+	PartnerSlots  map[string][]PartnerLink    `json:"partnerSlots,omitempty"` // 每用户多条伴侣连线
 	Messages      map[string][]PartnerMessage `json:"messages"`
 	Records       map[string][]IntimacyRecord `json:"records"`
 	Cycles        map[string][]CycleRecord    `json:"cycles"`

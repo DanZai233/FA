@@ -6,6 +6,7 @@ import type {
   IntimacyRecord,
   KnowledgeCard,
   MatchCard,
+  PartnerHub,
   PartnerLinkWire,
   PartnerMessage,
   PartnerShareRequest,
@@ -14,6 +15,7 @@ import type {
   ReminderSummary,
   ShareRejectPhraseOption,
   SocialPost,
+  UpdateMeBody,
   UserProfile,
 } from '../types/domain';
 
@@ -100,7 +102,7 @@ export const api = {
     }),
 
   me: () => request<UserProfile>('/api/v1/me'),
-  updateMe: (profile: Partial<UserProfile>) =>
+  updateMe: (profile: UpdateMeBody) =>
     request<UserProfile>('/api/v1/me', {
       method: 'PUT',
       body: JSON.stringify(profile),
@@ -133,7 +135,7 @@ export const api = {
     }),
   prediction: () => request<CyclePrediction>('/api/v1/cycles/prediction'),
   reminderSummary: () => request<ReminderSummary>('/api/v1/reminders/summary'),
-  partner: () => request<PartnerLinkWire>('/api/v1/partners'),
+  partner: () => request<PartnerHub>('/api/v1/partners'),
   createPartnerInvite: () =>
     request<PartnerLinkWire>('/api/v1/partners/invite', {
       method: 'POST',
@@ -144,15 +146,21 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({inviteCode}),
     }),
-  unlinkPartner: () =>
-    request<PartnerLinkWire>('/api/v1/partners', {
+  unlinkPartner: (peerId?: string) => {
+    const q = peerId ? `?peerId=${encodeURIComponent(peerId)}` : '';
+    return request<PartnerHub>(`/api/v1/partners${q}`, {
       method: 'DELETE',
-    }),
+    });
+  },
   partnerMessages: () => request<PartnerMessage[]>('/api/v1/partners/messages'),
-  createPartnerMessage: (phrase: string) =>
+  createPartnerMessage: (phrase: string, opts?: {scene?: string; targetPartnerId?: string}) =>
     request<PartnerMessage>('/api/v1/partners/messages', {
       method: 'POST',
-      body: JSON.stringify({phrase, scene: 'partner'}),
+      body: JSON.stringify({
+        phrase,
+        scene: opts?.scene ?? 'partner',
+        ...(opts?.targetPartnerId ? {targetPartnerId: opts.targetPartnerId} : {}),
+      }),
     }),
   partnerShareRequests: () => request<PartnerShareRequestsWire>('/api/v1/partners/share-requests'),
   createPartnerShareRequest: (body: CreatePartnerShareBody) =>

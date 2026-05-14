@@ -71,6 +71,8 @@ struct UserProfile: Codable, Identifiable {
     var role: UserRole
     var adultConfirmed: Bool
     var privacyLock: Bool?
+    /// exclusive（默认）| poly
+    var relationshipMode: String?
 }
 
 struct IntimacyRecord: Codable, Identifiable {
@@ -85,6 +87,8 @@ struct IntimacyRecord: Codable, Identifiable {
     var riskLevel: RiskLevel
     var noteTags: [String]
     var createdAt: String?
+    /// 众乐乐下关联的伴侣用户 id
+    var partnerId: String?
 }
 
 struct CycleRecord: Codable, Identifiable {
@@ -124,18 +128,25 @@ struct PartnerMessage: Codable, Identifiable {
     var authorNickname: String?
     var phrase: String
     var scene: String
+    var targetPeerId: String?
     var createdAt: String
 }
 
-struct PartnerLink: Codable, Identifiable {
+struct PartnerWire: Codable, Identifiable, Hashable {
     var id: String
-    var userId: String
+    var userId: String?
     var partnerId: String?
-    var inviteCode: String
+    var inviteCode: String?
     var status: String
-    var canShare: Bool
-    var createdAt: String
+    var canShare: Bool?
+    var createdAt: String?
     var confirmedAt: String?
+    var peerNickname: String?
+}
+
+struct PartnerHub: Codable {
+    var relationshipMode: String
+    var partners: [PartnerWire]
 }
 
 struct PartnerShareRequest: Codable, Identifiable, Hashable {
@@ -178,6 +189,24 @@ struct CreatePartnerShareBody: Encodable {
     var consentChecked: Bool
     var senderRating: Int
     var senderRole: UserRole
+    var targetPartnerId: String?
+
+    enum CodingKeys: String, CodingKey {
+        case occurredAt, type, protection, consentChecked, senderRating, senderRole, targetPartnerId
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(occurredAt, forKey: .occurredAt)
+        try c.encode(type, forKey: .type)
+        try c.encode(protection, forKey: .protection)
+        try c.encode(consentChecked, forKey: .consentChecked)
+        try c.encode(senderRating, forKey: .senderRating)
+        try c.encode(senderRole, forKey: .senderRole)
+        if let targetPartnerId, !targetPartnerId.isEmpty {
+            try c.encode(targetPartnerId, forKey: .targetPartnerId)
+        }
+    }
 }
 
 struct AcceptPartnerSharePayload: Encodable {
@@ -210,6 +239,8 @@ struct SocialPost: Codable, Identifiable {
     let createdAt: String
     let reported: Bool?
     let blocked: Bool?
+    /// 发布时服务端根据来源 IP 离线解析的展示文案
+    let ipRegion: String?
 }
 
 struct MatchCard: Codable, Identifiable {

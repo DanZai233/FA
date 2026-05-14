@@ -171,9 +171,7 @@ private struct OfflineModeView: View {
     }
 
     private static var todayString: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+        FalemeDateFormatting.shanghaiCalendarToday()
     }
 }
 
@@ -526,11 +524,16 @@ private struct AddRecordView: View {
     @State private var rating = 4
     @State private var consentChecked = true
     @State private var sharedWithPartner = false
+    @State private var targetPartnerPeerId = ""
 
     private let choiceColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
     private var partnerLinked: Bool {
-        store.partnerLink?.status == "linked"
+        store.anyPartnerLinked
+    }
+
+    private var pickPartner: Bool {
+        store.effectiveRelationshipMode() == "poly" && store.linkedPartnerWires.count > 1
     }
 
     private var shareMode: Bool {
@@ -638,6 +641,24 @@ private struct AddRecordView: View {
                                     .fixedSize(horizontal: false, vertical: true)
                             }
 
+                            if pickPartner {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("众乐乐 · 选择本次对象")
+                                        .font(.subheadline.bold())
+                                    Text("私密保存与法法同步都要指明是哪位搭子。")
+                                        .font(.caption2)
+                                        .foregroundStyle(.secondary)
+                                    Picker("搭子", selection: $targetPartnerPeerId) {
+                                        ForEach(store.linkedPartnerWires) { w in
+                                            Text((w.peerNickname?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? w.partnerId ?? "")
+                                                .tag(w.partnerId ?? "")
+                                        }
+                                    }
+                                    .pickerStyle(.menu)
+                                }
+                                .padding(.top, 4)
+                            }
+
                             Text("不舒服随时停止；不同意或未清醒时不要记录为已同意。")
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
@@ -669,7 +690,8 @@ private struct AddRecordView: View {
                                 protection: protection,
                                 rating: rating,
                                 consentChecked: consentChecked,
-                                sharedWithPartner: sharedWithPartner
+                                sharedWithPartner: sharedWithPartner,
+                                targetPartnerId: pickPartner ? targetPartnerPeerId : nil
                             )
                             FalemeHaptics.success()
                             dismiss()
@@ -694,6 +716,12 @@ private struct AddRecordView: View {
         .onDisappear {
             store.clearRecordSheetBanter()
         }
+        .onAppear {
+            syncTargetPeer()
+        }
+        .onChange(of: store.linkedPartnerWires.map(\.id)) { _, _ in
+            syncTargetPeer()
+        }
     }
 
     private var flameCaption: String {
@@ -703,6 +731,17 @@ private struct AddRecordView: View {
         case 3: return "平稳发挥 · \(rating) / 5"
         case 4: return "挺到位 · \(rating) / 5"
         default: return "火力全开 · \(rating) / 5"
+        }
+    }
+
+    private func syncTargetPeer() {
+        let ids = store.linkedPartnerWires.compactMap(\.partnerId)
+        if ids.isEmpty {
+            targetPartnerPeerId = ""
+            return
+        }
+        if !ids.contains(targetPartnerPeerId) {
+            targetPartnerPeerId = ids[0]
         }
     }
 
@@ -958,9 +997,7 @@ private struct CycleView: View {
     }
 
     private static var defaultStart: String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: Date())
+        FalemeDateFormatting.shanghaiCalendarToday()
     }
 }
 
@@ -1030,20 +1067,24 @@ private struct CalendarDay: Identifiable {
 }
 
 private func calendarDays(records: [IntimacyRecord]) -> [CalendarDay] {
-    let calendar = Calendar.current
+    var calendar = Calendar.current
+    calendar.timeZone = FalemeDateFormatting.shanghai
     let now = Date()
     let components = calendar.dateComponents([.year, .month], from: now)
     let start = calendar.date(from: components) ?? now
     let range = calendar.range(of: .day, in: .month, for: start) ?? 1..<31
     let firstWeekday = calendar.component(.weekday, from: start) - 1
     let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = FalemeDateFormatting.shanghai
     formatter.dateFormat = "yyyy-MM-dd"
+    let todayKey = formatter.string(from: now)
     let recorded = Set(records.map(\.occurredAt))
     var days: [CalendarDay] = (0..<firstWeekday).map { CalendarDay(id: "blank-\($0)", day: nil, hasRecord: false, isToday: false) }
     for day in range {
         let date = calendar.date(byAdding: .day, value: day - 1, to: start) ?? now
         let key = formatter.string(from: date)
-        days.append(CalendarDay(id: key, day: day, hasRecord: recorded.contains(key), isToday: calendar.isDateInToday(date)))
+        days.append(CalendarDay(id: key, day: day, hasRecord: recorded.contains(key), isToday: key == todayKey))
     }
     return days
 }
@@ -1192,11 +1233,13 @@ private struct PartnerView: View {
     @State private var shareSheet: PartnerShareSheet?
     @State private var moreBindOpen = false
     @State private var moreChatOpen = true
+    @State private var messageTargetPeer = ""
 
     var body: some View {
-        let status = store.partnerLink?.status ?? "none"
-        let isLinked = status == "linked"
-        let inviteCode = store.partnerLink?.inviteCode ?? "FALV1"
+        let primary = store.primaryPartnerWire
+        let isLinked = store.anyPartnerLinked
+        let inviteCode = primary?.inviteCode ?? "FALV1"
+        let polyMulti = store.effectiveRelationshipMode() == "poly" && store.linkedPartnerWires.count > 1
         ScrollView {
             VStack(spacing: 16) {
                 PageHeader(title: "伴侣", subtitle: isLinked ? "同步申请 · 绑定 · 留言" : "生成邀请码，对方确认后绑定。")
@@ -1209,7 +1252,7 @@ private struct PartnerView: View {
                     VStack(alignment: .leading, spacing: 18) {
                         HStack(alignment: .top, spacing: 12) {
                             VStack(alignment: .leading, spacing: 8) {
-                                Text("partner link")
+                                Text(store.effectiveRelationshipMode() == "poly" ? "poly · 众乐乐" : "exclusive · 独乐乐")
                                     .font(.caption.bold())
                                     .foregroundStyle(scheme == .dark ? .white.opacity(0.45) : .secondary)
                                 Text(isLinked ? "已绑定" : "待绑定")
@@ -1236,14 +1279,15 @@ private struct PartnerView: View {
                                 .font(.caption.bold())
                                 .foregroundStyle(.secondary)
                             HStack(alignment: .center, spacing: 8) {
-                                Text(isLinked ? "——" : inviteCode)
-                                    .font(.system(size: isLinked ? 22 : 26, weight: .black, design: .monospaced))
+                                let showInvite = !isLinked || primary?.status == "pending"
+                                Text(showInvite ? inviteCode : "——")
+                                    .font(.system(size: isLinked && !showInvite ? 22 : 26, weight: .black, design: .monospaced))
                                     .foregroundStyle(.primary)
                                     .tracking(2)
                                     .lineLimit(1)
                                     .minimumScaleFactor(0.45)
                                     .layoutPriority(1)
-                                Text(isLinked ? "已确认" : "待确认")
+                                Text(showInvite ? "待确认" : "已确认")
                                     .font(.caption.bold())
                                     .foregroundStyle(Color.rose)
                                     .padding(.horizontal, 10)
@@ -1265,16 +1309,44 @@ private struct PartnerView: View {
                                 stepPill("共享")
                             }
                         }
-                        Button(isLinked ? "解除绑定" : "生成并复制邀请码") {
+                        Button {
                             FalemeHaptics.light()
-                            if !isLinked {
+                            if !isLinked || polyMulti {
                                 UIPasteboard.general.string = inviteCode
                             }
-                            Task { await store.togglePartnerLink() }
+                            Task {
+                                await store.togglePartnerLink()
+                                if let code = store.primaryPartnerWire?.inviteCode, !code.isEmpty, polyMulti || !isLinked {
+                                    UIPasteboard.general.string = code
+                                }
+                            }
+                        } label: {
+                            Text(polyMulti && isLinked ? "邀请更多搭子" : (isLinked ? "解除绑定" : "生成并复制邀请码"))
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.white)
                         .foregroundStyle(.black)
+                    }
+                }
+
+                if store.effectiveRelationshipMode() == "poly", !store.linkedPartnerWires.isEmpty {
+                    Card(title: "已绑定的搭子") {
+                        ForEach(store.linkedPartnerWires) { w in
+                            HStack {
+                                Text(displayPeerLabel(w))
+                                    .font(.subheadline.bold())
+                                Spacer()
+                                Button("解除") {
+                                    Task {
+                                        if let pid = w.partnerId {
+                                            await store.unlinkPartnerPeer(peerId: pid)
+                                        }
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                            }
+                            .padding(.vertical, 4)
+                        }
                     }
                 }
 
@@ -1304,6 +1376,14 @@ private struct PartnerView: View {
                         Text(phrase)
                             .font(.subheadline.bold())
                             .fixedSize(horizontal: false, vertical: true)
+                        if store.linkedPartnerWires.count > 1 {
+                            Picker("发给谁", selection: $messageTargetPeer) {
+                                ForEach(store.linkedPartnerWires) { w in
+                                    Text(displayPeerLabel(w)).tag(w.partnerId ?? "")
+                                }
+                            }
+                            .pickerStyle(.menu)
+                        }
                         HStack(spacing: 10) {
                             Button("换一句") {
                                 FalemeHaptics.light()
@@ -1312,7 +1392,12 @@ private struct PartnerView: View {
                             .buttonStyle(.bordered)
                             Button("发送") {
                                 FalemeHaptics.light()
-                                Task { await store.sendPartnerMessage(phrase: phrase) }
+                                Task {
+                                    await store.sendPartnerMessage(
+                                        phrase: phrase,
+                                        targetPartnerId: store.linkedPartnerWires.count > 1 ? messageTargetPeer : nil
+                                    )
+                                }
                             }
                             .buttonStyle(.borderedProminent)
                             .tint(Color.rose)
@@ -1327,6 +1412,9 @@ private struct PartnerView: View {
                                 VStack(alignment: .leading, spacing: 4) {
                                     Text(partnerDisplayName(message.authorNickname))
                                         .font(.caption2.bold())
+                                    Text(FalemeDateFormatting.displayApiDateTime(message.createdAt))
+                                        .font(.caption2)
+                                        .foregroundStyle(.tertiary)
                                     Text(message.phrase)
                                         .font(.subheadline.bold())
                                         .fixedSize(horizontal: false, vertical: true)
@@ -1364,11 +1452,33 @@ private struct PartnerView: View {
         .onAppear {
             moreBindOpen = !isLinked
             moreChatOpen = isLinked
+            syncMessageTargetPeer()
         }
         .onChange(of: isLinked) { _, linked in
             moreBindOpen = !linked
             moreChatOpen = linked
+            syncMessageTargetPeer()
         }
+        .onChange(of: store.linkedPartnerWires.map(\.id)) { _, _ in
+            syncMessageTargetPeer()
+        }
+    }
+
+    private func syncMessageTargetPeer() {
+        let ids = store.linkedPartnerWires.compactMap(\.partnerId)
+        if ids.isEmpty {
+            messageTargetPeer = ""
+            return
+        }
+        if !ids.contains(messageTargetPeer) {
+            messageTargetPeer = ids[0]
+        }
+    }
+
+    private func displayPeerLabel(_ w: PartnerWire) -> String {
+        let nick = w.peerNickname?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !nick.isEmpty { return nick }
+        return w.partnerId ?? "搭子"
     }
 
     @ViewBuilder
@@ -1559,9 +1669,18 @@ private struct SquareView: View {
                             Text(post.authorAlias)
                                 .font(.caption.bold())
                                 .foregroundStyle(.secondary)
+                            if let region = post.ipRegion, !region.isEmpty {
+                                Text("IP 属地 \(region)")
+                                    .font(.caption2.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(2)
+                            }
                             Text(post.phrase)
                                 .font(.subheadline.bold())
                                 .fixedSize(horizontal: false, vertical: true)
+                            Text(FalemeDateFormatting.displayApiDateTime(post.createdAt))
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
                             ResonanceStrip(count: post.resonanceCount)
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack(spacing: 12) {
@@ -1603,6 +1722,79 @@ private struct SquareView: View {
     }
 }
 
+private struct PolyRelationshipSheet: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var step = 0
+    @State private var oath = ""
+    @State private var err: String?
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    if step == 0 {
+                        Text(
+                            """
+                            你正在开启「逆天价值观 · 众乐乐」模式。
+
+                            我们会先调侃一句：渣男/渣女预备役，价值观挺野的。
+
+                            这是你和 App 之间的保密上下文：不替社会道德站岗。接下来怎么做，只取决于你的内心与边界。
+
+                            多搭子是工具不是勋章；现实里的健康、情感、法律与对他人的尊重，请自行负责。
+                            """
+                        )
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Text("请输入完整口令（二选一）：我是渣男 或 我是渣女")
+                            .font(.subheadline)
+                        TextField("宣誓", text: $oath)
+                            .textFieldStyle(.roundedBorder)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        if let err {
+                            Text(err).font(.caption).foregroundStyle(.red)
+                        }
+                    }
+                }
+                .padding()
+            }
+            .navigationTitle(step == 0 ? "开启前" : "宣誓")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    if step == 0 {
+                        Button("继续") { step = 1 }
+                    } else {
+                        Button("确认开启") {
+                            Task {
+                                let t = oath.trimmingCharacters(in: .whitespacesAndNewlines)
+                                if t != "我是渣男" && t != "我是渣女" {
+                                    err = "须完整输入「我是渣男」或「我是渣女」。"
+                                    return
+                                }
+                                do {
+                                    try await store.enablePolyMode(oath: t)
+                                    FalemeHaptics.success()
+                                    dismiss()
+                                } catch {
+                                    err = "请求失败，请确认已连上后端。"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
 private struct ProfileView: View {
     @EnvironmentObject private var store: AppStore
     @AppStorage("faleme.offline.enabled") private var offlineMode = false
@@ -1611,6 +1803,7 @@ private struct ProfileView: View {
     @AppStorage("faleme.comfort.banner") private var comfortBannerEnabled = true
     @State private var nicknameDraft = ""
     @State private var squareAliasDraft = ""
+    @State private var showPolyRelationshipSheet = false
 
     var body: some View {
         ScrollView {
@@ -1752,6 +1945,45 @@ private struct ProfileView: View {
                             .strokeBorder(Color.white.opacity(store.role == .switch ? 0.3 : 0.2), lineWidth: 1)
                     )
                 }
+                Card(title: "关系模式") {
+                    Text(store.effectiveRelationshipMode() == "poly" ? "当前：逆天价值观 · 众乐乐" : "当前：道德标杆 · 独乐乐")
+                        .font(.subheadline.bold())
+                    Text(store.effectiveRelationshipMode() == "poly"
+                        ? "可同时绑定多位搭子；记录与留言需选择对象。"
+                        : "默认一对一；切换众乐乐需在弹窗中阅读说明并输入宣誓口令。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if store.isOfflineDemo {
+                        Text("与云端同步后可切换模式。")
+                            .font(.caption2)
+                            .foregroundStyle(.orange)
+                    }
+                    if store.effectiveRelationshipMode() == "poly" {
+                        Button("切回独乐乐") {
+                            Task {
+                                do {
+                                    try await store.disablePolyMode()
+                                    FalemeHaptics.success()
+                                } catch {
+                                    FalemeHaptics.error()
+                                }
+                            }
+                        }
+                        .buttonStyle(.bordered)
+                    } else {
+                        Button("切换到众乐乐…") {
+                            showPolyRelationshipSheet = true
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.black)
+                        .disabled(store.isOfflineDemo)
+                    }
+                }
+                .sheet(isPresented: $showPolyRelationshipSheet) {
+                    PolyRelationshipSheet()
+                        .environmentObject(store)
+                }
+
                 Card(title: "隐私锁") {
                     Toggle(isOn: Binding(
                         get: { store.privacyLockEnabled },
@@ -2026,6 +2258,8 @@ private func safeRate(_ records: [IntimacyRecord]) -> Int {
 
 private func monthCount(_ records: [IntimacyRecord]) -> Int {
     let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = FalemeDateFormatting.shanghai
     formatter.dateFormat = "yyyy-MM"
     let prefix = formatter.string(from: Date())
     return records.filter { $0.occurredAt.hasPrefix(prefix) }.count

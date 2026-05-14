@@ -9,9 +9,8 @@ type Config struct {
 	SupportEmail    string
 	DatabaseURL     string
 	RequireAdultAck bool
-	// IP2Region v4/v6 xdb 路径；留空且镜像内存在 /app/data/ip2region_v{4,6}.xdb 时会自动使用。
+	// IP2Region v4 xdb 路径；留空且镜像内存在 /app/data/ip2region_v4.xdb 时会自动使用（仅 IPv4 库，不加载 v6）。
 	IP2RegionV4DB string
-	IP2RegionV6DB string
 }
 
 func LoadConfig() Config {
@@ -22,8 +21,7 @@ func LoadConfig() Config {
 		SupportEmail:    env("FALEME_SUPPORT_EMAIL", "support@example.com"),
 		DatabaseURL:     env("DATABASE_URL", ""),
 		RequireAdultAck: env("FALEME_REQUIRE_ADULT_ACK", "true") != "false",
-		IP2RegionV4DB:   env("IP2REGION_V4_DB", ""),
-		IP2RegionV6DB:   env("IP2REGION_V6_DB", ""),
+		IP2RegionV4DB: env("IP2REGION_V4_DB", ""),
 	}
 }
 

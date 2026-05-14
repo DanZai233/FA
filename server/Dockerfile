@@ -13,9 +13,8 @@ RUN go build -o /out/faleme-api ./cmd/api
 FROM alpine:3.20
 WORKDIR /app
 RUN mkdir -p /app/data
-# 广场留言 IP 归属地（ip2region xdb，Apache-2.0）；构建时拉取，运行时由 OpenIP2Region 自动探测。
-ADD https://github.com/lionsoul2014/ip2region/raw/refs/heads/master/data/ip2region_v4.xdb /app/data/ip2region_v4.xdb
-ADD https://github.com/lionsoul2014/ip2region/raw/refs/heads/master/data/ip2region_v6.xdb /app/data/ip2region_v6.xdb
+# 广场留言 IP 归属地（仅 IPv4）；xdb 随仓库 server/data 一并 COPY，避免远端构建访问 GitHub。
+COPY data/ip2region_v4.xdb /app/data/ip2region_v4.xdb
 COPY --from=build /out/faleme-api /app/faleme-api
 EXPOSE 8083
 ENV FALEME_ADDR=:8083

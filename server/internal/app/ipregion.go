@@ -19,25 +19,21 @@ func fileExists(path string) bool {
 	return err == nil
 }
 
-// OpenIP2Region 从环境配置或默认 Docker 路径加载 ip2region；失败或未配置时返回 nil。
-func OpenIP2Region(v4Path, v6Path string) GeoLookup {
+// OpenIP2Region 从环境配置或默认 Docker 路径加载 ip2region（仅 IPv4 xdb）；失败或未配置时返回 nil。
+func OpenIP2Region(v4Path string) GeoLookup {
 	v4 := strings.TrimSpace(v4Path)
-	v6 := strings.TrimSpace(v6Path)
 	if v4 == "" && fileExists("/app/data/ip2region_v4.xdb") {
 		v4 = "/app/data/ip2region_v4.xdb"
 	}
-	if v6 == "" && fileExists("/app/data/ip2region_v6.xdb") {
-		v6 = "/app/data/ip2region_v6.xdb"
-	}
-	if v4 == "" && v6 == "" {
+	if v4 == "" {
 		return nil
 	}
-	r, err := service.NewIp2RegionWithPath(v4, v6)
+	r, err := service.NewIp2RegionWithPath(v4, "")
 	if err != nil {
 		log.Printf("ip2region: 初始化失败（广场将不展示 ipRegion）：%v", err)
 		return nil
 	}
-	log.Printf("ip2region: 已加载 v4=%q v6=%q", v4, v6)
+	log.Printf("ip2region: 已加载 v4=%q（IPv6 未启用）", v4)
 	return r
 }
 

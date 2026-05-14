@@ -33,8 +33,8 @@ sh deploy.sh
 
 启动后访问：
 
-- Web：`http://localhost:3000`
-- API 健康检查：`http://localhost:8080/healthz`
+- Web：`http://localhost:3003`
+- API 健康检查：`http://localhost:8083/healthz`
 
 也可以直接运行：
 
@@ -77,6 +77,20 @@ docker compose exec -T db psql -U faleme faleme < faleme-backup.sql
 ```bash
 docker compose down -v
 ```
+
+## 远端服务器部署（SSH + rsync + Docker）
+
+1. 远端已安装 Docker / `docker compose`，本机已配置 `ssh dz`（或改 `deploy/remote.env` 里的 `DEPLOY_SSH`）。
+2. 复制并编辑环境文件（**`DEPLOY_REMOTE_DIR` 须为服务器上的绝对路径**，勿用 `~/`）：
+
+```bash
+cp deploy/remote.env.example deploy/remote.env
+# 编辑 deploy/remote.env
+chmod +x scripts/deploy-remote.sh
+./scripts/deploy-remote.sh
+```
+
+脚本会 `rsync` 代码到远端目录，并执行 `docker compose -f docker-compose.yml -f docker-compose.remote.yml --env-file deploy/remote.env up --build -d`。叠加文件会关闭 Postgres 的宿主机端口映射，并通过环境变量设置 `FALEME_ALLOWED_ORIGIN` 等；详情见 `deploy/remote.env.example`。
 
 ## 关键页面
 

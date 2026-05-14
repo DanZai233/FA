@@ -1,0 +1,19 @@
+# 远端 / 生产叠加配置。用法：
+#   docker compose -f docker-compose.yml -f docker-compose.remote.yml --env-file deploy/remote.env up --build -d
+# 变量见 deploy/remote.env.example
+
+services:
+  web:
+    build:
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+
+  api:
+    environment:
+      FALEME_ALLOWED_ORIGIN: ${FALEME_PUBLIC_ORIGIN:-http://localhost:3003}
+      FALEME_MARKETING_URL: ${FALEME_MARKETING_URL:-http://localhost:3003}
+      FALEME_SUPPORT_EMAIL: ${FALEME_SUPPORT_EMAIL:-support@example.com}
+
+  db:
+    # 不映射到宿主机，仅容器内访问（降低外网暴露面）
+    ports: []

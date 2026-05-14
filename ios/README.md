@@ -6,7 +6,7 @@
 
 - `FalemeApp.swift`：App 入口。
 - `Models.swift`：与后端 JSON 契约一致的模型与枚举。
-- `APIService.swift`：基于 async/await 的 API Client，默认连接 `http://localhost:8080`。
+- `APIService.swift`：基于 async/await 的 API Client，默认连接 `http://localhost:8083`。
 - `DeviceIdentity.swift`：免登录设备身份，优先使用 `identifierForVendor`，兜底本地 UUID。
 - `AppStore.swift`：主线程状态容器，后端不可用时自动回落演示数据。
 - `ContentView.swift`：五个 Tab：记录、周期、伴侣、广场、我的。

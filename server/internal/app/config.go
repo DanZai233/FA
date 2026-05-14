@@ -13,9 +13,9 @@ type Config struct {
 
 func LoadConfig() Config {
 	return Config{
-		Addr:            env("FALEME_ADDR", ":8080"),
-		AllowedOrigin:   env("FALEME_ALLOWED_ORIGIN", "http://localhost:3000"),
-		MarketingURL:    env("FALEME_MARKETING_URL", "http://localhost:3000"),
+		Addr:            env("FALEME_ADDR", ":8083"),
+		AllowedOrigin:   env("FALEME_ALLOWED_ORIGIN", "http://localhost:3003"),
+		MarketingURL:    env("FALEME_MARKETING_URL", "http://localhost:3003"),
 		SupportEmail:    env("FALEME_SUPPORT_EMAIL", "support@example.com"),
 		DatabaseURL:     env("DATABASE_URL", ""),
 		RequireAdultAck: env("FALEME_REQUIRE_ADULT_ACK", "true") != "false",

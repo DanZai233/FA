@@ -75,7 +75,7 @@ export function getHeroFabBanter(args: {role: UserRole; clickCountToday: number;
 
   // c === 1
   if (isR) {
-    return '好被姐妹/兄弟，敢点「被法了」就很勇——享受被爱也值得被记录。' + ratingTailReceiver(latestRating);
+    return '好被法 姐妹/兄弟，敢点「被法了」就很勇——享受被爱也值得被记录。' + ratingTailReceiver(latestRating);
   }
   if (isS) {
     return '好法…也可能是好被，反正先记账——今日剧本自选，但安全与同意不外包。' + ratingTailSwitch(latestRating);

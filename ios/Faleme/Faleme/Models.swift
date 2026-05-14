@@ -153,6 +153,9 @@ struct PartnerShareRequest: Codable, Identifiable, Hashable {
     var id: String
     var fromUserId: String
     var toUserId: String
+    /// 列表接口由服务端填充
+    var senderNickname: String?
+    var receiverNickname: String?
     var status: String
     var senderRole: UserRole?
     var occurredAt: String
@@ -236,11 +239,33 @@ struct SocialPost: Codable, Identifiable {
     let authorAlias: String
     let phrase: String
     let resonanceCount: Int
+    /// 轻量共鸣理由计数（懂 / 笑死 / 学到了）
+    let resonanceChips: [String: Int]?
     let createdAt: String
     let reported: Bool?
     let blocked: Bool?
     /// 发布时服务端根据来源 IP 离线解析的展示文案
     let ipRegion: String?
+}
+
+/// 导出 JSON（年度回顾等；仅解码用到的字段，忽略其余键）
+struct DataExport: Decodable {
+    let user: UserProfile
+    let records: [IntimacyRecord]
+    let messages: [PartnerMessage]
+    let shareRequests: [PartnerShareRequest]?
+
+    enum CodingKeys: String, CodingKey {
+        case user, records, messages, shareRequests
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        user = try c.decode(UserProfile.self, forKey: .user)
+        records = try c.decodeIfPresent([IntimacyRecord].self, forKey: .records) ?? []
+        messages = try c.decodeIfPresent([PartnerMessage].self, forKey: .messages) ?? []
+        shareRequests = try c.decodeIfPresent([PartnerShareRequest].self, forKey: .shareRequests)
+    }
 }
 
 struct MatchCard: Codable, Identifiable {

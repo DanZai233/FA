@@ -525,11 +525,16 @@ private struct AddRecordView: View {
     @State private var consentChecked = true
     @State private var sharedWithPartner = false
     @State private var targetPartnerPeerId = ""
+    @State private var recordStep = 0
 
     private let choiceColumns = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
 
     private var partnerLinked: Bool {
         store.anyPartnerLinked
+    }
+
+    private var twoStepPartnerFlow: Bool {
+        partnerLinked
     }
 
     private var pickPartner: Bool {
@@ -538,6 +543,96 @@ private struct AddRecordView: View {
 
     private var shareMode: Bool {
         partnerLinked && sharedWithPartner
+    }
+
+    private var showBasicsStep: Bool {
+        !twoStepPartnerFlow || recordStep == 0
+    }
+
+    private var showPartnerStep: Bool {
+        !twoStepPartnerFlow || recordStep == 1
+    }
+
+    private var headerTitle: String {
+        if twoStepPartnerFlow {
+            return recordStep == 0 ? "第 1 步 · 记下事实" : (shareMode ? "第 2 步 · 发起同步" : "第 2 步 · 保存方式")
+        }
+        return shareMode ? "发起法法同步" : "快速记下这一笔"
+    }
+
+    private var headerSubtitle: String {
+        if twoStepPartnerFlow {
+            return recordStep == 0
+                ? "类型、保护与评分先落定，再在下一步选择是否发给伴侣。"
+                : (shareMode ? "对方在伴侣页收件箱确认后，双方才会各有一条记录。" : "不勾选同步则仅保存到你自己的私密记录。")
+        }
+        return shareMode ? "对方在伴侣页收件箱确认后，双方才会各有一条记录。" : "选对类型与保护，火苗评分点一点。"
+    }
+
+    @ViewBuilder
+    private var consentOnlyBlock: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Toggle(isOn: $consentChecked) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("双方明确同意")
+                        .font(.subheadline.bold())
+                    Text("清醒、自愿、可随时撤回")
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .tint(Color.rose)
+            Text("不舒服随时停止；不同意或未清醒时不要记录为已同意。")
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private var partnerShareBlock: some View {
+        VStack(alignment: .leading, spacing: 14) {
+        Toggle(isOn: $sharedWithPartner) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("共享给已绑定伴侣")
+                    .font(.subheadline.bold())
+                Text(partnerLinked ? "走同步申请，对方确认后双方各一条" : "需先完成伴侣绑定")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .tint(Color.rose)
+        .disabled(!partnerLinked && !sharedWithPartner)
+
+        if !partnerLinked {
+            Text("绑定伴侣后，才能发起法法同步申请。")
+                .font(.caption2)
+                .foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if pickPartner {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("众乐乐 · 选择本次对象")
+                    .font(.subheadline.bold())
+                Text("私密保存与法法同步都要指明是哪位搭子。")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                Picker("搭子", selection: $targetPartnerPeerId) {
+                    ForEach(store.linkedPartnerWires) { w in
+                        Text((w.peerNickname?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? w.partnerId ?? "")
+                            .tag(w.partnerId ?? "")
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            .padding(.top, 4)
+        }
+
+        Text("不舒服随时停止；不同意或未清醒时不要记录为已同意。")
+            .font(.caption2)
+            .foregroundStyle(.tertiary)
+            .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     var body: some View {
@@ -565,104 +660,70 @@ private struct AddRecordView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 6) {
-                        Text(shareMode ? "发起法法同步" : "快速记下这一笔")
+                        Text(headerTitle)
                             .font(.title3.bold())
-                        Text(shareMode ? "对方在伴侣页收件箱确认后，双方才会各有一条记录。" : "选对类型与保护，火苗评分点一点。")
+                        Text(headerSubtitle)
                             .font(.subheadline)
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                    recordFieldCard(title: "亲密类型") {
-                        LazyVGrid(columns: choiceColumns, spacing: 10) {
-                            ForEach(IntimacyType.allCases, id: \.self) { item in
-                                RecordChoiceChip(title: item.title, selected: type == item) {
-                                    if type != item {
-                                        FalemeHaptics.light()
-                                        type = item
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    recordFieldCard(title: "保护方式") {
-                        LazyVGrid(columns: choiceColumns, spacing: 10) {
-                            ForEach(ProtectionMethod.allCases, id: \.self) { item in
-                                RecordChoiceChip(title: item.title, selected: protection == item) {
-                                    if protection != item {
-                                        FalemeHaptics.light()
-                                        protection = item
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    recordFieldCard(title: "主观体感") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Text(flameCaption)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            FlameRatingRow(rating: $rating)
-                        }
-                    }
-
-                    recordFieldCard(title: "体验与安全") {
-                        VStack(alignment: .leading, spacing: 14) {
-                            Toggle(isOn: $consentChecked) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("双方明确同意")
-                                        .font(.subheadline.bold())
-                                    Text("清醒、自愿、可随时撤回")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .tint(Color.rose)
-
-                            Toggle(isOn: $sharedWithPartner) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text("共享给已绑定伴侣")
-                                        .font(.subheadline.bold())
-                                    Text(partnerLinked ? "走同步申请，对方确认后双方各一条" : "需先完成伴侣绑定")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            .tint(Color.rose)
-                            .disabled(!partnerLinked && !sharedWithPartner)
-
-                            if !partnerLinked {
-                                Text("绑定伴侣后，才能发起法法同步申请。")
-                                    .font(.caption2)
-                                    .foregroundStyle(.orange)
-                                    .fixedSize(horizontal: false, vertical: true)
-                            }
-
-                            if pickPartner {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text("众乐乐 · 选择本次对象")
-                                        .font(.subheadline.bold())
-                                    Text("私密保存与法法同步都要指明是哪位搭子。")
-                                        .font(.caption2)
-                                        .foregroundStyle(.secondary)
-                                    Picker("搭子", selection: $targetPartnerPeerId) {
-                                        ForEach(store.linkedPartnerWires) { w in
-                                            Text((w.peerNickname?.trimmingCharacters(in: .whitespacesAndNewlines)).flatMap { $0.isEmpty ? nil : $0 } ?? w.partnerId ?? "")
-                                                .tag(w.partnerId ?? "")
+                    if showBasicsStep {
+                        recordFieldCard(title: "亲密类型") {
+                            LazyVGrid(columns: choiceColumns, spacing: 10) {
+                                ForEach(IntimacyType.allCases, id: \.self) { item in
+                                    RecordChoiceChip(title: item.title, selected: type == item) {
+                                        if type != item {
+                                            FalemeHaptics.light()
+                                            type = item
                                         }
                                     }
-                                    .pickerStyle(.menu)
                                 }
-                                .padding(.top, 4)
                             }
+                        }
 
-                            Text("不舒服随时停止；不同意或未清醒时不要记录为已同意。")
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                                .fixedSize(horizontal: false, vertical: true)
+                        recordFieldCard(title: "保护方式") {
+                            LazyVGrid(columns: choiceColumns, spacing: 10) {
+                                ForEach(ProtectionMethod.allCases, id: \.self) { item in
+                                    RecordChoiceChip(title: item.title, selected: protection == item) {
+                                        if protection != item {
+                                            FalemeHaptics.light()
+                                            protection = item
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        recordFieldCard(title: "主观体感") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Text(flameCaption)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                FlameRatingRow(rating: $rating)
+                            }
+                        }
+
+                        if twoStepPartnerFlow {
+                            recordFieldCard(title: "体验与安全") {
+                                consentOnlyBlock
+                            }
+                        }
+                    }
+
+                    if showPartnerStep {
+                        if twoStepPartnerFlow {
+                            recordFieldCard(title: "法法同步") {
+                                partnerShareBlock
+                            }
+                        } else {
+                            recordFieldCard(title: "体验与安全") {
+                                VStack(alignment: .leading, spacing: 14) {
+                                    consentOnlyBlock
+                                    partnerShareBlock
+                                }
+                            }
                         }
                     }
                 }
@@ -683,32 +744,93 @@ private struct AddRecordView: View {
             .safeAreaInset(edge: .bottom) {
                 VStack(spacing: 0) {
                     Divider().opacity(0.35)
-                    Button {
-                        Task {
-                            await store.addRecord(
-                                type: type,
-                                protection: protection,
-                                rating: rating,
-                                consentChecked: consentChecked,
-                                sharedWithPartner: sharedWithPartner,
-                                targetPartnerId: pickPartner ? targetPartnerPeerId : nil
-                            )
-                            FalemeHaptics.success()
-                            dismiss()
+                    if twoStepPartnerFlow {
+                        if recordStep == 0 {
+                            Button {
+                                guard consentChecked else { return }
+                                FalemeHaptics.light()
+                                recordStep = 1
+                            } label: {
+                                Text("下一步")
+                                    .font(.headline.bold())
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 16)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .tint(Color.rose)
+                            .disabled(!consentChecked)
+                            .opacity(consentChecked ? 1 : 0.45)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 12)
+                            .background(.ultraThinMaterial)
+                        } else {
+                            HStack(spacing: 12) {
+                                Button {
+                                    FalemeHaptics.light()
+                                    recordStep = 0
+                                } label: {
+                                    Text("上一步")
+                                        .font(.headline.bold())
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                }
+                                .buttonStyle(.bordered)
+                                Button {
+                                    Task {
+                                        await store.addRecord(
+                                            type: type,
+                                            protection: protection,
+                                            rating: rating,
+                                            consentChecked: consentChecked,
+                                            sharedWithPartner: sharedWithPartner,
+                                            targetPartnerId: pickPartner ? targetPartnerPeerId : nil
+                                        )
+                                        FalemeHaptics.success()
+                                        dismiss()
+                                    }
+                                } label: {
+                                    Label(shareMode ? "发送同步申请" : "保存记录", systemImage: shareMode ? "paperplane.fill" : "checkmark.circle.fill")
+                                        .font(.headline.bold())
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 16)
+                                }
+                                .buttonStyle(.borderedProminent)
+                                .tint(Color.rose)
+                                .disabled(!consentChecked)
+                                .opacity(consentChecked ? 1 : 0.45)
+                            }
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 12)
+                            .background(.ultraThinMaterial)
                         }
-                    } label: {
-                        Label(shareMode ? "发送同步申请" : "保存记录", systemImage: shareMode ? "paperplane.fill" : "checkmark.circle.fill")
-                            .font(.headline.bold())
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
+                    } else {
+                        Button {
+                            Task {
+                                await store.addRecord(
+                                    type: type,
+                                    protection: protection,
+                                    rating: rating,
+                                    consentChecked: consentChecked,
+                                    sharedWithPartner: sharedWithPartner,
+                                    targetPartnerId: pickPartner ? targetPartnerPeerId : nil
+                                )
+                                FalemeHaptics.success()
+                                dismiss()
+                            }
+                        } label: {
+                            Label(shareMode ? "发送同步申请" : "保存记录", systemImage: shareMode ? "paperplane.fill" : "checkmark.circle.fill")
+                                .font(.headline.bold())
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 16)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(Color.rose)
+                        .disabled(!consentChecked)
+                        .opacity(consentChecked ? 1 : 0.45)
+                        .padding(.horizontal, 18)
+                        .padding(.vertical, 12)
+                        .background(.ultraThinMaterial)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.rose)
-                    .disabled(!consentChecked)
-                    .opacity(consentChecked ? 1 : 0.45)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(.ultraThinMaterial)
                 }
             }
         }
@@ -718,6 +840,9 @@ private struct AddRecordView: View {
         }
         .onAppear {
             syncTargetPeer()
+        }
+        .onChange(of: partnerLinked) { _, linked in
+            if !linked { recordStep = 0 }
         }
         .onChange(of: store.linkedPartnerWires.map(\.id)) { _, _ in
             syncTargetPeer()
@@ -860,7 +985,7 @@ private struct CycleView: View {
             VStack(spacing: 16) {
                 PageHeader(title: "法法日历", subtitle: "该记就记，该停就停。日历只负责诚实。")
                 AdviceCard(advice: store.prediction)
-                CycleForecastCard(prediction: store.prediction, records: store.records)
+                CycleForecastCard(todayAdvice: store.prediction, forecast: store.cycleForecast, records: store.records)
                 Card(title: "本月火力图") {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(minimum: 8), spacing: 4), count: 7), spacing: 4) {
                         ForEach(["日", "一", "二", "三", "四", "五", "六"], id: \.self) { item in
@@ -1002,7 +1127,8 @@ private struct CycleView: View {
 }
 
 private struct CycleForecastCard: View {
-    let prediction: HealthAdvice
+    let todayAdvice: HealthAdvice
+    let forecast: CyclePrediction?
     let records: [IntimacyRecord]
     @Environment(\.colorScheme) private var scheme
 
@@ -1020,9 +1146,19 @@ private struct CycleForecastCard: View {
                     .font(.subheadline)
                     .foregroundStyle(scheme == .dark ? .white.opacity(0.68) : .secondary)
                     .fixedSize(horizontal: false, vertical: true)
+                if let f = forecast {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("预计下次经期 \(f.nextPeriodStart) – \(f.nextPeriodEnd)")
+                            .font(.caption.bold())
+                            .foregroundStyle(scheme == .dark ? .white.opacity(0.82) : .primary)
+                        Text("易孕窗口 \(f.fertileStart) – \(f.fertileEnd)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 HStack(spacing: 6) {
                     GlassHeroStatPill(label: "活跃天", value: "\(Set(records.map(\.occurredAt)).count) 天")
-                    GlassHeroStatPill(label: "提醒", value: prediction.level == .high ? "严厉" : "温和")
+                    GlassHeroStatPill(label: "提醒", value: todayAdvice.level == .high ? "严厉" : "温和")
                     GlassHeroStatPill(label: "记录", value: "\(records.count) 条")
                 }
             }
@@ -1089,6 +1225,37 @@ private func calendarDays(records: [IntimacyRecord]) -> [CalendarDay] {
     return days
 }
 
+private enum ShareRejectLocalStats {
+    static let defaultsKey = "faleme.rejectPhraseTapCounts"
+
+    static func bump(presetId: String) {
+        var map = load()
+        map[presetId, default: 0] += 1
+        if let data = try? JSONEncoder().encode(map) {
+            UserDefaults.standard.set(data, forKey: defaultsKey)
+        }
+    }
+
+    static func load() -> [String: Int] {
+        guard let data = UserDefaults.standard.data(forKey: defaultsKey),
+              let map = try? JSONDecoder().decode([String: Int].self, from: data)
+        else { return [:] }
+        return map
+    }
+
+    static func topPhrases(from presets: [ShareRejectPhrase], limit: Int = 5) -> [(phrase: ShareRejectPhrase, count: Int)] {
+        let map = load()
+        return presets
+            .compactMap { p -> (ShareRejectPhrase, Int)? in
+                let c = map[p.id, default: 0]
+                return c > 0 ? (p, c) : nil
+            }
+            .sorted { $0.1 > $1.1 }
+            .prefix(limit)
+            .map { ($0.0, $0.1) }
+    }
+}
+
 private enum PartnerShareSheet: Identifiable {
     case accept(PartnerShareRequest)
     case reject(PartnerShareRequest)
@@ -1112,6 +1279,10 @@ private struct AcceptPartnerShareSheet: View {
             VStack(alignment: .leading, spacing: 18) {
                 Text("待确认 · \(request.occurredAt)")
                     .font(.headline.bold())
+                if let nick = request.senderNickname?.trimmingCharacters(in: .whitespacesAndNewlines), !nick.isEmpty {
+                    Text("来自 \(nick)")
+                        .font(.subheadline.weight(.semibold))
+                }
                 Text("\(request.type.title) · \(request.protection.title) · Ta \(request.senderRating)/5")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
@@ -1162,10 +1333,33 @@ private struct RejectPartnerShareSheet: View {
                     Text("婉拒后不会留下共同记录，对方会收到一条留言。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                    let top = ShareRejectLocalStats.topPhrases(from: presets)
+                    if !top.isEmpty {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("本机常用婉拒")
+                                .font(.caption2.weight(.heavy))
+                                .foregroundStyle(.tertiary)
+                            ForEach(top, id: \.0.id) { pair in
+                                HStack {
+                                    Text("\(pair.0.emoji.map { "\($0) " } ?? "")\(pair.0.text)".trimmingCharacters(in: .whitespacesAndNewlines))
+                                        .font(.caption.bold())
+                                        .foregroundStyle(.secondary)
+                                    Spacer(minLength: 0)
+                                    Text("×\(pair.1)")
+                                        .font(.caption2.weight(.heavy))
+                                        .foregroundStyle(Color.rose.opacity(0.9))
+                                }
+                            }
+                        }
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.rose.opacity(0.06), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
                             ForEach(presets) { p in
                                 Button {
+                                    ShareRejectLocalStats.bump(presetId: p.id)
                                     var parts: [String] = []
                                     if let e = p.emoji, !e.isEmpty { parts.append(e) }
                                     parts.append(p.text)
@@ -1500,6 +1694,20 @@ private struct PartnerView: View {
                             .font(.caption.bold())
                             .foregroundStyle(.secondary)
                     }
+                    if let nick = req.senderNickname?.trimmingCharacters(in: .whitespacesAndNewlines), !nick.isEmpty {
+                        HStack(spacing: 6) {
+                            Text(nick)
+                                .font(.subheadline.weight(.semibold))
+                            if let sr = req.senderRole {
+                                Text(sr.title)
+                                    .font(.caption2.weight(.heavy))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(.thinMaterial, in: Capsule())
+                            }
+                        }
+                    }
                     Text("\(req.type.title) · \(req.protection.title) · Ta \(req.senderRating)/5")
                         .font(.caption.bold())
                     Text(FalemeQuips.partnerInboxHint(senderRole: req.senderRole ?? .switch))
@@ -1598,6 +1806,7 @@ private struct SquareView: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.colorScheme) private var scheme
     @State private var phrase = randomPhrase()
+    @State private var resonateTarget: SocialPost?
 
     var body: some View {
         let totalResonance = store.posts.reduce(0) { $0 + $1.resonanceCount }
@@ -1682,10 +1891,18 @@ private struct SquareView: View {
                                 .font(.caption2)
                                 .foregroundStyle(.tertiary)
                             ResonanceStrip(count: post.resonanceCount)
+                            if let chips = post.resonanceChips, !chips.isEmpty {
+                                Text(
+                                    chips.sorted { $0.value > $1.value }.map { "\($0.key) \($0.value)" }.joined(separator: " · ")
+                                )
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .lineLimit(2)
+                            }
                             VStack(alignment: .leading, spacing: 10) {
                                 HStack(spacing: 12) {
                                     Button("共鸣 \(post.resonanceCount)") {
-                                        Task { await store.resonate(post: post) }
+                                        resonateTarget = post
                                     }
                                     .font(.caption.bold())
                                     .foregroundStyle(Color.rose)
@@ -1719,6 +1936,38 @@ private struct SquareView: View {
             await store.load()
         }
         .falemeScreenChrome()
+        .confirmationDialog("选一句共鸣（也可不选）", isPresented: Binding(
+            get: { resonateTarget != nil },
+            set: { if !$0 { resonateTarget = nil } }
+        ), titleVisibility: .visible) {
+            Button("懂") {
+                if let p = resonateTarget {
+                    Task { await store.resonate(post: p, chip: "懂") }
+                }
+                resonateTarget = nil
+            }
+            Button("笑死") {
+                if let p = resonateTarget {
+                    Task { await store.resonate(post: p, chip: "笑死") }
+                }
+                resonateTarget = nil
+            }
+            Button("学到了") {
+                if let p = resonateTarget {
+                    Task { await store.resonate(post: p, chip: "学到了") }
+                }
+                resonateTarget = nil
+            }
+            Button("不选理由，直接 +1") {
+                if let p = resonateTarget {
+                    Task { await store.resonate(post: p, chip: nil) }
+                }
+                resonateTarget = nil
+            }
+            Button("取消", role: .cancel) {
+                resonateTarget = nil
+            }
+        }
     }
 }
 
@@ -1801,6 +2050,7 @@ private struct ProfileView: View {
     @AppStorage("faleme.appearance") private var appearanceRaw = FalemeAppearance.system.rawValue
     @AppStorage("faleme.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("faleme.comfort.banner") private var comfortBannerEnabled = true
+    @AppStorage("faleme.seriousMode") private var seriousModeRaw = ""
     @State private var nicknameDraft = ""
     @State private var squareAliasDraft = ""
     @State private var showPolyRelationshipSheet = false
@@ -1832,7 +2082,11 @@ private struct ProfileView: View {
                 Card(title: "体验与关怀") {
                     Toggle("操作成功时轻触感", isOn: $hapticsEnabled)
                     Toggle("首页显示时段问候", isOn: $comfortBannerEnabled)
-                    Text("问候语只本地展示；触感走系统触感引擎，不上传。")
+                    Toggle("严肃模式（更少玩笑文案）", isOn: Binding(
+                        get: { seriousModeRaw == "1" },
+                        set: { seriousModeRaw = $0 ? "1" : "" }
+                    ))
+                    Text("问候语只本地展示；严肃模式与 Web 共用键 faleme.seriousMode。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -2034,6 +2288,12 @@ private struct ProfileView: View {
                         }
                         .buttonStyle(.borderedProminent)
                         .tint(.black)
+                        .frame(maxWidth: .infinity)
+
+                        Button("生成本地年度回顾（HTML）") {
+                            Task { await store.prepareYearReviewHTML() }
+                        }
+                        .buttonStyle(.bordered)
                         .frame(maxWidth: .infinity)
 
                         Button("删除账号") {
@@ -2266,6 +2526,16 @@ private func monthCount(_ records: [IntimacyRecord]) -> Int {
 }
 
 private func latestShortDate(_ records: [IntimacyRecord]) -> String {
+    guard let latest = records.first else { return "暂无" }
+    return String(latest.occurredAt.dropFirst(5))
+}
+
+ring {
+    guard let latest = records.first else { return "暂无" }
+    return String(latest.occurredAt.dropFirst(5))
+}
+
+ortDate(_ records: [IntimacyRecord]) -> String {
     guard let latest = records.first else { return "暂无" }
     return String(latest.occurredAt.dropFirst(5))
 }

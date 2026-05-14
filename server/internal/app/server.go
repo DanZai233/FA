@@ -63,13 +63,13 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /terms", s.handleLegal("terms"))
 	mux.HandleFunc("GET /support", s.handleLegal("support"))
 	mux.HandleFunc("GET /delete-account", s.handleLegal("delete-account"))
-	return s.withCORS(mux)
+	return s.withCORS(RequestLog(mux))
 }
 
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", s.cfg.AllowedOrigin)
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Faleme-Device-ID")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Faleme-Device-ID, X-Request-ID")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -449,7 +449,13 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleResonatePost(w http.ResponseWriter, r *http.Request) {
-	post, err := s.store.ResonatePost(r.PathValue("id"))
+	var body struct {
+		Chip string `json:"chip"`
+	}
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	post, err := s.store.ResonatePost(r.PathValue("id"), strings.TrimSpace(body.Chip))
 	if err != nil {
 		writeError(w, http.StatusNotFound, "post not found")
 		return

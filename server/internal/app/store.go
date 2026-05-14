@@ -444,11 +444,14 @@ func (s *MemoryStore) PartnerShareRequests(userID string) PartnerShareRequestsWi
 	defer s.mu.RUnlock()
 	var inbox, outbox []PartnerShareRequest
 	for _, r := range s.shareRequests {
+		wire := r
+		wire.SenderNickname = s.lockedPartnerNick(r.FromUserID)
+		wire.ReceiverNickname = s.lockedPartnerNick(r.ToUserID)
 		if r.ToUserID == userID && r.Status == "pending" {
-			inbox = append(inbox, r)
+			inbox = append(inbox, wire)
 		}
 		if r.FromUserID == userID {
-			outbox = append(outbox, r)
+			outbox = append(outbox, wire)
 		}
 	}
 	return PartnerShareRequestsWire{Inbox: inbox, Outbox: outbox}
@@ -584,12 +587,25 @@ func (s *MemoryStore) AddPost(userID, phrase, ipRegion string) SocialPost {
 	return post
 }
 
-func (s *MemoryStore) ResonatePost(postID string) (SocialPost, error) {
+// allowedResonanceChips 与前端广场轻量 chip 对齐；未知值只增加总共鸣数。
+var allowedResonanceChips = map[string]struct{}{
+	"懂": {}, "笑死": {}, "学到了": {},
+}
+
+func (s *MemoryStore) ResonatePost(postID string, chip string) (SocialPost, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for i := range s.posts {
 		if s.posts[i].ID == postID {
 			s.posts[i].ResonanceCount++
+			if chip != "" {
+				if _, ok := allowedResonanceChips[chip]; ok {
+					if s.posts[i].ResonanceChips == nil {
+						s.posts[i].ResonanceChips = map[string]int{}
+					}
+					s.posts[i].ResonanceChips[chip]++
+				}
+			}
 			s.persistLocked()
 			return s.posts[i], nil
 		}

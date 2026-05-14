@@ -89,6 +89,30 @@ enum FalemeQuips {
         }
     }
 
+    static func partnerSharePipelineNote() -> String {
+        "已排队法法同步：对方在收件箱确认后，双方各生成一条带评分的记录。"
+    }
+
+    static func isInFertileWindow(cycle: CyclePrediction?, today: String) -> Bool {
+        guard let cycle else { return false }
+        return today >= cycle.fertileStart && today <= cycle.fertileEnd
+    }
+
+    static func postRecordEcho(role: UserRole, rating: Int, type: IntimacyType, protection: ProtectionMethod, cycle: CyclePrediction?) -> String {
+        let today = FalemeDateFormatting.shanghaiCalendarToday()
+        var chunks: [String] = [afterSaveBanter(role: role, rating: rating)]
+        if isInFertileWindow(cycle: cycle, today: today) {
+            chunks.append("处在易孕窗口附近：日历已按高风险提醒标亮，这条也会一起算进「身体天气预报」。")
+        }
+        let risky = (type == .penetrative || type == .oral || type == .manual) && protection == .none
+        if risky {
+            chunks.append("无可靠保护时，这类记录会拉高整体风险观感，也可能拉低这段周期的「安全员评分」趋势。")
+        } else if protection == .condom || protection == .oralContraceptive || protection == .iud {
+            chunks.append("有保护记录会给本周安全趋势加分。")
+        }
+        return chunks.joined(separator: " ")
+    }
+
     static func partnerInboxHint(senderRole: UserRole) -> String {
         switch senderRole {
         case .receiver:

@@ -97,7 +97,7 @@ struct APIService {
         var req = URLRequest(url: url)
         req.httpMethod = "DELETE"
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        req.setValue(deviceID, forHTTPHeaderField: "X-Faleme-Device-ID")
+        applyCommonHeaders(to: &req)
         let (data, response) = try await URLSession.shared.data(for: req)
         guard let http = response as? HTTPURLResponse, (200 ..< 300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
@@ -130,8 +130,12 @@ struct APIService {
         return payload.phrases
     }
 
-    func resonatePost(id: String) async throws -> SocialPost {
-        try await request("/api/v1/social/posts/\(id)/resonate", method: "POST", body: [String: String]())
+    func resonatePost(id: String, chip: String? = nil) async throws -> SocialPost {
+        let trimmed = chip?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            return try await request("/api/v1/social/posts/\(id)/resonate", method: "POST", body: [String: String]())
+        }
+        return try await request("/api/v1/social/posts/\(id)/resonate", method: "POST", body: ["chip": trimmed])
     }
 
     func blockPost(id: String) async throws -> SocialPost {
@@ -163,7 +167,7 @@ struct APIService {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue(deviceID, forHTTPHeaderField: "X-Faleme-Device-ID")
+        applyCommonHeaders(to: &request)
         if let body {
             request.httpBody = try JSONEncoder().encode(body)
         }
@@ -177,12 +181,20 @@ struct APIService {
     private func rawRequest(_ path: String) async throws -> Data {
         var request = URLRequest(url: baseURL.appending(path: path))
         request.httpMethod = "GET"
-        request.setValue(deviceID, forHTTPHeaderField: "X-Faleme-Device-ID")
+        applyCommonHeaders(to: &request)
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
             throw URLError(.badServerResponse)
         }
         return data
+    }
+
+    private func applyCommonHeaders(to request: inout URLRequest) {
+        request.setValue(deviceID, forHTTPHeaderField: "X-Faleme-Device-ID")
+        request.setValue(FalemeAPIHeaders.requestID(), forHTTPHeaderField: "X-Request-ID")
+        if let token = UserDefaults.standard.string(forKey: FalemeAPIHeaders.authTokenKey), !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
     }
 }
 

@@ -73,6 +73,15 @@ export interface IntimacyRecord {
   partnerId?: string;
 }
 
+/** 记录弹层草稿 */
+export type RecordDraft = Pick<
+  IntimacyRecord,
+  'type' | 'protection' | 'consentChecked' | 'sharedWithPartner' | 'rating'
+> & {
+  /** 众乐乐且多位搭子时，记录或同步要指向的伴侣用户 id */
+  targetPartnerId?: string;
+};
+
 export interface CycleRecord {
   id: string;
   periodStart: string;
@@ -116,6 +125,8 @@ export interface SocialPost {
   authorAlias: string;
   phrase: string;
   resonanceCount: number;
+  /** 轻量共鸣理由计数（懂 / 笑死 / 学到了） */
+  resonanceChips?: Record<string, number>;
   createdAt: string;
   reported?: boolean;
   blocked?: boolean;
@@ -139,6 +150,10 @@ export interface PartnerShareRequest {
   id: string;
   fromUserId: string;
   toUserId: string;
+  /** 列表接口由服务端填充：发起方昵称 */
+  senderNickname?: string;
+  /** 列表接口由服务端填充：接收方昵称 */
+  receiverNickname?: string;
   status: 'pending' | 'accepted' | 'rejected';
   senderRole?: UserRole;
   occurredAt: string;

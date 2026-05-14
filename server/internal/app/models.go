@@ -92,6 +92,9 @@ type PartnerShareRequest struct {
 	ID              string           `json:"id"`
 	FromUserID      string           `json:"fromUserId"`
 	ToUserID        string           `json:"toUserId"`
+	// SenderNickname / ReceiverNickname 由服务端在列表接口组装，便于收件箱展示（昵称仅自己与伴侣可见场景下使用）。
+	SenderNickname   string `json:"senderNickname,omitempty"`
+	ReceiverNickname string `json:"receiverNickname,omitempty"`
 	Status          string           `json:"status"` // pending | accepted | rejected
 	SenderRole      UserRole         `json:"senderRole,omitempty"`
 	OccurredAt      string           `json:"occurredAt"`
@@ -190,6 +193,8 @@ type SocialPost struct {
 	AuthorAlias    string    `json:"authorAlias"`
 	Phrase         string    `json:"phrase"`
 	ResonanceCount int       `json:"resonanceCount"`
+	// ResonanceChips 为轻量「共鸣理由」计数（懂 / 笑死 / 学到了）；仅统计合法 chip。
+	ResonanceChips map[string]int `json:"resonanceChips,omitempty"`
 	CreatedAt      time.Time `json:"createdAt"`
 	Reported       bool      `json:"reported"`
 	Blocked        bool      `json:"blocked"`

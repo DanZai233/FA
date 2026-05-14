@@ -1,10 +1,15 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 
 @theme {
-  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  --color-rose-500: #F43F5E;
-  --color-rose-600: #E11D48;
+  --font-sans: "Noto Sans SC", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Noto Serif SC", "Noto Sans SC", serif;
+  --radius-card: 1.75rem;
+  --radius-pill: 9999px;
+  --shadow-card-sm: 0 8px 28px rgba(15, 23, 42, 0.06);
+  --shadow-card-md: 0 18px 50px rgba(15, 23, 42, 0.1);
+  --shadow-card-lg: 0 28px 80px rgba(244, 63, 94, 0.12);
+  --color-rose-500: #e11d48;
+  --color-rose-600: #be123c;
 }
 
 html {
@@ -15,18 +20,21 @@ body {
   min-height: 100%;
   height: auto;
   font-family: var(--font-sans);
-  background-color: #F2F2F7; /* iOS standard background color for grouped tables */
-  color: #000000;
+  background-color: #f2f2f7;
+  color: #0f172a;
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+}
+
+.font-display {
+  font-family: var(--font-display);
 }
 
 #root {
   min-height: 100%;
 }
 
-/* Hide scrollbar for clean UI */
 ::-webkit-scrollbar {
   display: none;
 }

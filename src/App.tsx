@@ -13,18 +13,15 @@ import {
   MoreHorizontal,
   PenLine,
   RefreshCw,
-  Send,
   ShieldCheck,
   Siren,
   Sparkles,
   User,
   Users,
-  X,
 } from 'lucide-react';
 import {AnimatePresence, motion} from 'motion/react';
 import {
   brand,
-  defaultAdvice,
   intimacyTypeLabels,
   phraseBook,
   protectionLabels,
@@ -33,18 +30,37 @@ import {
 } from './design/copy';
 import {
   bumpTodayHeroFabClick,
-  getAfterSaveBanter,
   getHeroFabBanter,
   getPartnerShareAfterSendBanter,
   getPartnerShareInboxBanter,
   getPartnerShareOutboxBanter,
 } from './design/faleQuips';
 import {exclusiveModeNote, polyModePrelude, polyOathPlaceholder} from './design/relationshipModeCopy';
+import {partnerTabEyebrow, polyPartnerFlairLine} from './design/modeFlair';
 import {api, getAuthToken, setAuthToken} from './api/client';
 import {AuthScreen} from './AuthScreen';
+import {AdviceCard} from './components/AdviceCard';
+import {ExpandableHelp} from './components/ExpandableHelp';
+import {StatusRibbon} from './components/StatusRibbon';
+import {ToggleRow} from './components/ToggleRow';
+import {RecordSheet} from './features/record/RecordSheet';
+import {PublicPage} from './publicSite';
+import {
+  achievementLine,
+  detectNewAchievements,
+  isSeriousMode,
+  markAchievementsShown,
+  setSeriousMode,
+} from './lib/achievements';
+import {buildPostPartnerShareEcho, buildPostRecordEcho} from './lib/recordSaveFeedback';
+import {getOfflinePending, setOfflinePending} from './lib/offlinePending';
+import {bumpRejectPresetStat, topRejectPresetId} from './lib/rejectPresetStats';
+import {buildYearReviewHtml} from './lib/yearReviewHtml';
+import {buildStats, buildTags, calculateRisk, predictCycle, recordCountOnRecentUtcDays} from './lib/cyclePrediction';
 import {
   normalizeRelationshipMode,
   partnerStatusFromHub,
+  type CreatePartnerShareBody,
   type CyclePrediction,
   type CycleRecord,
   type HealthAdvice,
@@ -67,8 +83,9 @@ import {
   type SocialPost,
   type UserProfile,
   type UserRole,
+  type RecordDraft,
 } from './types/domain';
-import {formatWallClockShanghai, recentShanghaiCalendarDays, shanghaiCalendarDay as isoDate} from './datetime';
+import {formatWallClockShanghai, shanghaiCalendarDay as isoDate} from './datetime';
 
 const today = new Date();
 const addDays = (date: Date, days: number) => {
@@ -303,6 +320,8 @@ function MobileApp() {
   const [recordSheetOpen, setRecordSheetOpen] = useState(false);
   const [recordBanter, setRecordBanter] = useState<string | null>(null);
   const [homeEcho, setHomeEcho] = useState<string | null>(null);
+  const [networkToast, setNetworkToast] = useState<string | null>(null);
+  const [fadingRecordId, setFadingRecordId] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<'connected' | 'offline-demo'>('offline-demo');
 
   useEffect(() => {
@@ -323,22 +342,45 @@ function MobileApp() {
   const prediction = remotePrediction ?? localPrediction;
   const stats = useMemo(() => buildStats(records), [records]);
 
+  const flushOfflinePendingOnce = () => {
+    const p = getOfflinePending();
+    if (!p) {
+      return Promise.resolve();
+    }
+    if (p.kind === 'createRecord') {
+      return api.createRecord(p.payload as Partial<IntimacyRecord>).then(() => {
+        setOfflinePending(null);
+        setNetworkToast('离线队列已同步成功');
+      });
+    }
+    return api.createPartnerShareRequest(p.payload as CreatePartnerShareBody).then(() => {
+      setOfflinePending(null);
+      setNetworkToast('离线队列已同步成功');
+    });
+  };
+
   const syncRemotePartnerExtras = () => {
-    Promise.all([api.records(), api.partnerMessages(), api.partnerShareRequests(), api.partner()])
-      .then(([nextRecords, nextMessages, nextShares, nextPartner]) => {
-        setRecords(Array.isArray(nextRecords) ? nextRecords : []);
-        setPartnerMessages(Array.isArray(nextMessages) ? nextMessages : []);
-        setShareWire(
-          nextShares && typeof nextShares === 'object'
-            ? {inbox: nextShares.inbox ?? [], outbox: nextShares.outbox ?? []}
-            : {inbox: [], outbox: []},
-        );
-        const hub = normalizePartnerHub(nextPartner);
-        setPartnerHub(hub);
-        setProfile((p) => ({...p, partnerStatus: partnerStatusFromHub(hub)}));
-        setApiStatus('connected');
+    void flushOfflinePendingOnce()
+      .catch(() => {
+        /* 仍保持队列 */
       })
-      .catch(() => setApiStatus('offline-demo'));
+      .finally(() => {
+        Promise.all([api.records(), api.partnerMessages(), api.partnerShareRequests(), api.partner()])
+          .then(([nextRecords, nextMessages, nextShares, nextPartner]) => {
+            setRecords(Array.isArray(nextRecords) ? nextRecords : []);
+            setPartnerMessages(Array.isArray(nextMessages) ? nextMessages : []);
+            setShareWire(
+              nextShares && typeof nextShares === 'object'
+                ? {inbox: nextShares.inbox ?? [], outbox: nextShares.outbox ?? []}
+                : {inbox: [], outbox: []},
+            );
+            const hub = normalizePartnerHub(nextPartner);
+            setPartnerHub(hub);
+            setProfile((p) => ({...p, partnerStatus: partnerStatusFromHub(hub)}));
+            setApiStatus('connected');
+          })
+          .catch(() => setApiStatus('offline-demo'));
+      });
   };
 
   useEffect(() => {
@@ -346,62 +388,69 @@ function MobileApp() {
       return;
     }
     let ignore = false;
-    Promise.all([
-      api.me(),
-      api.records(),
-      api.cycles(),
-      api.posts(),
-      api.prediction(),
-      api.partnerMessages(),
-      api.partner(),
-      api.reminderSummary(),
-      api.partnerShareRequests(),
-      api.partnerShareRejectPhrases().catch(() => ({phrases: [] as ShareRejectPhraseOption[]})),
-    ])
-      .then(
-        ([
-          nextProfile,
-          nextRecords,
-          nextCycles,
-          nextPosts,
-          nextPrediction,
-          nextMessages,
-          nextPartner,
-          nextSummary,
-          nextShares,
-          rejectPack,
-        ]) => {
-        if (ignore) {
-          return;
-        }
-        setProfile((prev) => ({
-          ...prev,
-          ...nextProfile,
-          relationshipMode: normalizeRelationshipMode(nextProfile.relationshipMode),
-          partnerStatus: partnerStatusFromHub(normalizePartnerHub(nextPartner)),
-        }));
-        setPartnerHub(normalizePartnerHub(nextPartner));
-        setRecords(Array.isArray(nextRecords) ? nextRecords : []);
-        const cycles = Array.isArray(nextCycles) ? nextCycles : [];
-        if (cycles[0]) {
-          setCycle(cycles[0]);
-        }
-        setPosts(Array.isArray(nextPosts) ? nextPosts : []);
-        setRemotePrediction(nextPrediction);
-        setPartnerMessages(Array.isArray(nextMessages) ? nextMessages : []);
-        setShareWire(
-          nextShares && typeof nextShares === 'object'
-            ? {inbox: nextShares.inbox ?? [], outbox: nextShares.outbox ?? []}
-            : {inbox: [], outbox: []},
-        );
-        setShareRejectPresets(Array.isArray(rejectPack.phrases) ? rejectPack.phrases : []);
-        setSummary(nextSummary);
-        setApiStatus('connected');
-      })
+    void flushOfflinePendingOnce()
       .catch(() => {
-        if (!ignore) {
-          setApiStatus('offline-demo');
-        }
+        /* 离线队列失败不阻断主同步 */
+      })
+      .finally(() => {
+        Promise.all([
+          api.me(),
+          api.records(),
+          api.cycles(),
+          api.posts(),
+          api.prediction(),
+          api.partnerMessages(),
+          api.partner(),
+          api.reminderSummary(),
+          api.partnerShareRequests(),
+          api.partnerShareRejectPhrases().catch(() => ({phrases: [] as ShareRejectPhraseOption[]})),
+        ])
+          .then(
+            ([
+              nextProfile,
+              nextRecords,
+              nextCycles,
+              nextPosts,
+              nextPrediction,
+              nextMessages,
+              nextPartner,
+              nextSummary,
+              nextShares,
+              rejectPack,
+            ]) => {
+              if (ignore) {
+                return;
+              }
+              setProfile((prev) => ({
+                ...prev,
+                ...nextProfile,
+                relationshipMode: normalizeRelationshipMode(nextProfile.relationshipMode),
+                partnerStatus: partnerStatusFromHub(normalizePartnerHub(nextPartner)),
+              }));
+              setPartnerHub(normalizePartnerHub(nextPartner));
+              setRecords(Array.isArray(nextRecords) ? nextRecords : []);
+              const cycles = Array.isArray(nextCycles) ? nextCycles : [];
+              if (cycles[0]) {
+                setCycle(cycles[0]);
+              }
+              setPosts(Array.isArray(nextPosts) ? nextPosts : []);
+              setRemotePrediction(nextPrediction);
+              setPartnerMessages(Array.isArray(nextMessages) ? nextMessages : []);
+              setShareWire(
+                nextShares && typeof nextShares === 'object'
+                  ? {inbox: nextShares.inbox ?? [], outbox: nextShares.outbox ?? []}
+                  : {inbox: [], outbox: []},
+              );
+              setShareRejectPresets(Array.isArray(rejectPack.phrases) ? rejectPack.phrases : []);
+              setSummary(nextSummary);
+              setApiStatus('connected');
+            },
+          )
+          .catch(() => {
+            if (!ignore) {
+              setApiStatus('offline-demo');
+            }
+          });
       });
     return () => {
       ignore = true;
@@ -415,6 +464,26 @@ function MobileApp() {
     const timer = window.setTimeout(() => setHomeEcho(null), 8000);
     return () => window.clearTimeout(timer);
   }, [homeEcho]);
+
+  useEffect(() => {
+    if (!networkToast) {
+      return;
+    }
+    const timer = window.setTimeout(() => setNetworkToast(null), 5200);
+    return () => window.clearTimeout(timer);
+  }, [networkToast]);
+
+  useEffect(() => {
+    if (authPhase !== 'in' || isSeriousMode()) {
+      return;
+    }
+    const fresh = detectNewAchievements(records);
+    if (!fresh.length) {
+      return;
+    }
+    markAchievementsShown(fresh);
+    setHomeEcho(fresh.map(achievementLine).join(' '));
+  }, [records, authPhase]);
 
   if (offlineMode) {
     return <OfflineModeView onExit={() => {
@@ -479,10 +548,14 @@ function MobileApp() {
         .createPartnerShareRequest(body)
         .then(() => {
           setApiStatus('connected');
-          setHomeEcho(getPartnerShareAfterSendBanter(profile.role));
+          setHomeEcho(`${getPartnerShareAfterSendBanter(profile.role)} ${buildPostPartnerShareEcho()}`);
           syncRemotePartnerExtras();
         })
-        .catch(() => setApiStatus('offline-demo'));
+        .catch(() => {
+          setApiStatus('offline-demo');
+          setOfflinePending({kind: 'createPartnerShare', payload: body});
+          setNetworkToast('已本地排队，恢复网络后自动重试');
+        });
       setRecordSheetOpen(false);
       return;
     }
@@ -507,13 +580,26 @@ function MobileApp() {
       ...(recordPartnerId ? {partnerId: recordPartnerId} : {}),
     };
     setRecords((prev) => [optimisticRecord, ...prev]);
-    api.createRecord(optimisticRecord)
+    api
+      .createRecord(optimisticRecord)
       .then((record) => {
         setRecords((prev) => prev.map((item) => (item.id === optimisticRecord.id ? record : item)));
         setApiStatus('connected');
-        setHomeEcho(getAfterSaveBanter(profile.role, draft.rating));
+        setHomeEcho(
+          buildPostRecordEcho({
+            role: profile.role,
+            rating: draft.rating,
+            draft,
+            prediction,
+          }),
+        );
       })
-      .catch(() => setApiStatus('offline-demo'));
+      .catch(() => {
+        setApiStatus('offline-demo');
+        setRecords((prev) => prev.filter((item) => item.id !== optimisticRecord.id));
+        setOfflinePending({kind: 'createRecord', payload: optimisticRecord});
+        setNetworkToast('已本地排队，恢复网络后自动重试');
+      });
     setRecordSheetOpen(false);
   };
 
@@ -541,6 +627,7 @@ function MobileApp() {
   return (
     <div className="flex h-[100dvh] min-h-0 justify-center overflow-hidden bg-gradient-to-br from-[#fdf2f8] via-[#f4f4fb] to-[#fffbeb]">
       <div className={`ios-safe-top relative flex h-full min-h-0 w-full max-w-[430px] flex-col overflow-hidden ${theme.pageBg} shadow-2xl`}>
+        <StatusRibbon advice={prediction.todayAdvice} partnerHub={partnerHub ?? emptyPartnerHub} />
         <main className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
           {activeTab === 'home' && (
             <HomeView
@@ -550,6 +637,7 @@ function MobileApp() {
               summary={summary}
               role={profile.role}
               homeEcho={homeEcho}
+              fadingRecordId={fadingRecordId}
               onDismissHomeEcho={() => setHomeEcho(null)}
               onAddRecord={() => {
                 const n = bumpTodayHeroFabClick(profile.id);
@@ -562,8 +650,12 @@ function MobileApp() {
                 setOfflineMode(true);
               }}
               onDeleteRecord={(id) => {
-                setRecords((prev) => prev.filter((record) => record.id !== id));
-                api.deleteRecord(id).catch(() => setApiStatus('offline-demo'));
+                setFadingRecordId(id);
+                window.setTimeout(() => {
+                  setRecords((prev) => prev.filter((record) => record.id !== id));
+                  api.deleteRecord(id).catch(() => setApiStatus('offline-demo'));
+                  setFadingRecordId(null);
+                }, 220);
               }}
             />
           )}
@@ -667,18 +759,22 @@ function MobileApp() {
             <SquareView
               posts={posts}
               onPublish={publishPhrase}
-              onResonate={(id) => {
+              onResonate={(id, chip) => {
                 setPosts((prev) =>
                   prev.map((post) =>
                     post.id === id ? {...post, resonanceCount: post.resonanceCount + 1} : post,
                   ),
                 );
-                api.resonatePost(id)
+                api
+                  .resonatePost(id, chip)
                   .then((updated) => {
                     setPosts((prev) => prev.map((post) => (post.id === id ? updated : post)));
                     setApiStatus('connected');
                   })
-                  .catch(() => setApiStatus('offline-demo'));
+                  .catch(() => {
+                    setApiStatus('offline-demo');
+                    setNetworkToast('已本地排队，恢复网络后自动重试');
+                  });
               }}
               onReport={(id) => {
                 setPosts((prev) => prev.map((post) => (post.id === id ? {...post, reported: true} : post)));
@@ -796,6 +892,14 @@ function MobileApp() {
           </div>
         </nav>
 
+        {networkToast ? (
+          <div className="pointer-events-none fixed bottom-[4.5rem] left-1/2 z-[60] w-full max-w-[430px] -translate-x-1/2 px-4">
+            <div className="pointer-events-auto rounded-2xl border border-slate-800 bg-slate-950/95 px-4 py-2.5 text-center text-xs font-bold text-white shadow-xl backdrop-blur-md">
+              {networkToast}
+            </div>
+          </div>
+        ) : null}
+
         <RecordSheet
           isOpen={recordSheetOpen}
           advice={prediction.todayAdvice}
@@ -819,6 +923,7 @@ function HomeView({
   summary,
   role,
   homeEcho,
+  fadingRecordId,
   onDismissHomeEcho,
   onAddRecord,
   onEnterOffline,
@@ -830,6 +935,7 @@ function HomeView({
   summary: ReminderSummary | null;
   role: UserRole;
   homeEcho?: string | null;
+  fadingRecordId?: string | null;
   onDismissHomeEcho?: () => void;
   onAddRecord: () => void;
   onEnterOffline: () => void;
@@ -883,6 +989,10 @@ function HomeView({
       <button onClick={onEnterOffline} className="w-full rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-700">
         进入完全离线模式
       </button>
+      <ExpandableHelp
+        summary="离线模式：不联网、不同步、不社交。"
+        detail="适合只想本地留痕、或网络不可信时使用；回到完整版后会重新尝试同步服务器数据。"
+      />
 
       <Card title="今日安全流程" action="3 步别省">
         <div className="grid gap-3">
@@ -913,7 +1023,7 @@ function HomeView({
 
       <Card title="最近记录" action="只展示给你授权的人">
         <div className="space-y-3">
-          {records.slice(0, 6).map((record) => renderRecordRow(record, onDeleteRecord))}
+          {records.slice(0, 6).map((record) => renderRecordRow(record, onDeleteRecord, fadingRecordId))}
           {!latest && <p className="py-6 text-center text-sm text-slate-400">暂无记录。荒唐可以从今天开始，安全也要从今天开始。</p>}
         </div>
       </Card>
@@ -1048,7 +1158,13 @@ function CycleView({
   const activeDays = monthDays.filter((day) => day.count > 0).length;
   return (
     <section className="space-y-5 p-5 pt-8">
-      <PageTitle title="法法日历" subtitle="该记就记，该停就停。日历只负责诚实，不负责嘴硬。" />
+      <header>
+        <h1 className="font-display text-3xl font-black tracking-tight text-slate-950">法法日历</h1>
+        <ExpandableHelp
+          summary="该记就记，该停就停：日历只负责诚实。"
+          detail="该记就记，该停就停。日历只负责诚实，不负责嘴硬。预测窗口仅供参考，不能替代就医。"
+        />
+      </header>
       <AdviceCard advice={prediction.todayAdvice} />
 
       <div className="overflow-hidden rounded-[2rem] bg-slate-950 p-5 text-white shadow-xl">
@@ -1198,7 +1314,7 @@ function PartnerView({
   const title = linked ? '已绑定心动搭子' : pending ? '邀请已生成' : '等待绑定搭子';
   const subtitle = linked
     ? mode === 'poly'
-      ? '众乐乐：每位搭子都要单独确认共享；留言也可指定对象。'
+      ? polyPartnerFlairLine()
       : '共享不是偷看，所有记录都要逐项授权。'
     : pending
       ? '把下方邀请码发给对方，对方在「接受邀请」里输入即可完成绑定。'
@@ -1209,13 +1325,14 @@ function PartnerView({
 
   return (
     <section className="space-y-5 p-5 pt-8">
-      <PageTitle title="伴侣绑定" subtitle={pageSubtitle} />
+      <header>
+        <h1 className="font-display text-3xl font-black tracking-tight text-slate-950">伴侣绑定</h1>
+        <ExpandableHelp summary={pageSubtitle} detail={subtitle} />
+      </header>
       <div className="overflow-hidden rounded-[2rem] border border-white/30 bg-slate-950/95 p-5 text-white shadow-xl shadow-rose-200/30 backdrop-blur-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
-            <p className="text-xs font-black uppercase tracking-[0.25em] text-white/40">
-              {mode === 'poly' ? 'poly · 众乐乐' : 'exclusive · 独乐乐'}
-            </p>
+            <p className="text-xs font-black uppercase tracking-[0.25em] text-white/40">{partnerTabEyebrow(mode)}</p>
             <h2 className="mt-2 text-2xl font-black">{title}</h2>
             <p className="mt-2 text-sm leading-6 text-white/65">{subtitle}</p>
           </div>
@@ -1332,9 +1449,10 @@ function PartnerView({
 
       {linked && (
         <Card title="法法同步收件箱" action={`${inbox.length ? `${inbox.length} 条待你` : '暂无待办'}`}>
-          <p className="mb-4 text-xs leading-5 text-slate-500">
-            在记录里勾选「共享给已绑定伴侣」会发到这里的申请：对方点「接受」后双方才各有一条同步记录；点「拒绝」会通知发起方，且<strong>不会</strong>留下这条共同记录。
-          </p>
+          <ExpandableHelp
+            summary="有人向你发起法法同步：你先确认，再写入双方记录。"
+            detail="在记录里勾选「法法同步」会发到这里的申请：对方点「接受」后双方才各有一条同步记录；点「拒绝」会通知发起方，且不会留下这条共同记录。"
+          />
           {inbox.length === 0 && outbox.length === 0 ? (
             <p className="py-4 text-center text-sm text-slate-400">还没有法法同步申请。</p>
           ) : null}
@@ -1343,7 +1461,10 @@ function PartnerView({
               <div key={req.id} className="rounded-3xl border border-rose-100 bg-rose-50/40 p-4">
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div>
-                    <p className="text-xs font-black text-rose-500">待你确认</p>
+                    <p className="text-xs font-black text-rose-600">待你确认</p>
+                    <p className="mt-1 text-xs font-bold text-slate-700">
+                      来自 {req.senderNickname?.trim() || '对方'} · {roleLabels[req.senderRole ?? 'switch']}
+                    </p>
                     <p className="mt-1 text-sm font-black text-slate-900">{req.occurredAt}</p>
                     <p className="mt-1 text-xs text-slate-600">
                       {intimacyTypeLabels[req.type]} · {protectionLabels[req.protection]} · Ta 的评分 {req.senderRating}/5
@@ -1406,6 +1527,7 @@ function PartnerView({
                           key={preset.id}
                           type="button"
                           onClick={() => {
+                            bumpRejectPresetStat(preset.id);
                             const line = [preset.emoji, preset.text].filter(Boolean).join(' ').trim();
                             setShareRejectDraft(Array.from(line).slice(0, 240).join(''));
                           }}
@@ -1416,6 +1538,15 @@ function PartnerView({
                         </button>
                       ))}
                     </div>
+                    {(() => {
+                      const top = topRejectPresetId();
+                      const line = top ? rejectPhrasePresets.find((p) => p.id === top.id) : null;
+                      return line && top ? (
+                        <p className="text-[10px] font-semibold text-slate-500">
+                          本机常用婉拒：「{line.text}」· {top.count} 次
+                        </p>
+                      ) : null;
+                    })()}
                     <textarea
                       value={shareRejectDraft}
                       onChange={(event) => {
@@ -1639,7 +1770,7 @@ function SquareView({
 }: {
   posts: SocialPost[];
   onPublish: (phrase: string) => void;
-  onResonate: (id: string) => void;
+  onResonate: (id: string, chip?: string) => void;
   onReport: (id: string) => void;
   onBlock: (id: string) => void;
 }) {
@@ -1647,6 +1778,7 @@ function SquareView({
   const [sheet, setSheet] = useState<SquareSheet>(null);
   const [draft, setDraft] = useState('');
   const [menuPostId, setMenuPostId] = useState<string | null>(null);
+  const [resonatePickFor, setResonatePickFor] = useState<string | null>(null);
   const [match, setMatch] = useState<MatchCard | null>(matchSeed);
   const totalResonance = useMemo(() => posts.reduce((sum, post) => sum + post.resonanceCount, 0), [posts]);
   const maxChars = 320;
@@ -1748,19 +1880,55 @@ function SquareView({
                   <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-bold text-slate-400">
                     <button
                       type="button"
-                      onClick={() => onResonate(post.id)}
-                      className="inline-flex items-center gap-1 rounded-full text-rose-500 hover:text-rose-600"
+                      aria-expanded={resonatePickFor === post.id}
+                      aria-label={`共鸣 ${post.resonanceCount} 次，点开后可选理由`}
+                      onClick={() => setResonatePickFor((cur) => (cur === post.id ? null : post.id))}
+                      className="inline-flex items-center gap-1 rounded-full text-rose-600 hover:text-rose-700"
                     >
                       <Heart size={14} className="shrink-0" />
                       {post.resonanceCount}
                     </button>
                     <span className="tabular-nums">{formatWallClockShanghai(post.createdAt)}</span>
                     {post.ipRegion ? (
-                      <span className="max-w-[14rem] truncate text-[11px] font-semibold text-slate-400" title={post.ipRegion}>
+                      <span className="max-w-[14rem] truncate text-[11px] font-semibold text-slate-500" title={post.ipRegion}>
                         IP 属地 {post.ipRegion}
                       </span>
                     ) : null}
                   </div>
+                  {post.resonanceChips && Object.keys(post.resonanceChips).length > 0 ? (
+                    <p className="mt-1 text-[10px] font-bold text-slate-400">
+                      {Object.entries(post.resonanceChips)
+                        .map(([k, v]) => `${k}×${v}`)
+                        .join(' · ')}
+                    </p>
+                  ) : null}
+                  {resonatePickFor === post.id ? (
+                    <div className="mt-2 flex flex-wrap gap-2 border-t border-slate-100 pt-2">
+                      {(['懂', '笑死', '学到了'] as const).map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          className="rounded-full bg-rose-50 px-3 py-1.5 text-[11px] font-black text-rose-700"
+                          onClick={() => {
+                            onResonate(post.id, chip);
+                            setResonatePickFor(null);
+                          }}
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-black text-slate-600"
+                        onClick={() => {
+                          onResonate(post.id);
+                          setResonatePickFor(null);
+                        }}
+                      >
+                        不选理由
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
               </div>
             </article>
@@ -1942,6 +2110,7 @@ function ProfileView({
   const [oathDraft, setOathDraft] = useState('');
   const [modeBusy, setModeBusy] = useState(false);
   const [modeError, setModeError] = useState<string | null>(null);
+  const [seriousLocal, setSeriousLocal] = useState(() => isSeriousMode());
   useEffect(() => {
     setUsernameDraft(profile.nickname);
   }, [profile.nickname]);
@@ -1955,7 +2124,10 @@ function ProfileView({
   return (
     <>
     <section className="space-y-5 p-5 pt-8">
-      <PageTitle title="我的" subtitle="成年人的体面，是知道什么时候该认真。" />
+      <header>
+        <h1 className="font-display text-3xl font-black tracking-tight text-slate-950">我的</h1>
+        <ExpandableHelp summary="成年人的体面，是知道什么时候该认真。" detail="用户名与广场身份分开；关系模式只影响伴侣绑定规则，不改变健康建议的底线。" />
+      </header>
       <Card title={displayName} action="成年确认已完成">
         <div className="flex items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-tr from-rose-400 to-pink-500 text-xl font-black text-white shadow-lg">
@@ -2096,6 +2268,37 @@ function ProfileView({
         </div>
       </Card>
 
+      <Card title="年度回顾与彩蛋" action="全本地">
+        <p className="text-xs leading-5 text-slate-500">年度回顾单页由导出 JSON 在浏览器里即时生成，不会额外上传。</p>
+        <ToggleRow
+          checked={seriousLocal}
+          label="我不要彩蛋，只要严肃模式"
+          onChange={(v) => {
+            setSeriousLocal(v);
+            setSeriousMode(v);
+          }}
+        />
+        <button
+          type="button"
+          disabled={!apiConnected}
+          onClick={() => {
+            void api
+              .exportMe()
+              .then((d) => {
+                const html = buildYearReviewHtml(d);
+                const blob = new Blob([html], {type: 'text/html;charset=utf-8'});
+                const url = URL.createObjectURL(blob);
+                window.open(url, '_blank', 'noopener,noreferrer');
+                window.setTimeout(() => URL.revokeObjectURL(url), 120_000);
+              })
+              .catch(() => {});
+          }}
+          className="mt-3 w-full rounded-2xl bg-gradient-to-r from-violet-600 to-rose-500 py-3 text-sm font-black text-white disabled:opacity-40"
+        >
+          生成本地年度回顾网页
+        </button>
+      </Card>
+
       <Card title="健康小抄" action="三张先够用">
         <div className="space-y-3">
           {knowledgeCards.map((card) => (
@@ -2233,179 +2436,6 @@ function ProfileView({
   );
 }
 
-type RecordDraft = Pick<
-  IntimacyRecord,
-  'type' | 'protection' | 'consentChecked' | 'sharedWithPartner' | 'rating'
-> & {
-  /** 众乐乐且多位搭子时，记录或同步要指向的伴侣用户 id */
-  targetPartnerId?: string;
-};
-
-function RecordSheet({
-  isOpen,
-  advice,
-  partnerHub,
-  topBanter,
-  onClose,
-  onSave,
-}: {
-  isOpen: boolean;
-  advice: HealthAdvice;
-  partnerHub: PartnerHub;
-  topBanter?: string | null;
-  onClose: () => void;
-  onSave: (draft: RecordDraft) => void;
-}) {
-  const [type, setType] = useState<IntimacyType>('penetrative');
-  const [protection, setProtection] = useState<ProtectionMethod>('condom');
-  const [rating, setRating] = useState(4);
-  const [consentChecked, setConsentChecked] = useState(true);
-  const [sharedWithPartner, setSharedWithPartner] = useState(false);
-  const [targetPartnerId, setTargetPartnerId] = useState('');
-
-  const mode = normalizeRelationshipMode(partnerHub.relationshipMode);
-  const linkedRows = useMemo(
-    () => (partnerHub.partners ?? []).filter((p) => p.status === 'linked' && p.partnerId),
-    [partnerHub],
-  );
-  const partnerLinked = linkedRows.length > 0;
-  const shareMode = partnerLinked && sharedWithPartner;
-  const pickPartner = mode === 'poly' && linkedRows.length > 1;
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    const ids = linkedRows.map((r) => r.partnerId).filter(Boolean) as string[];
-    setTargetPartnerId((prev) => (ids.includes(prev) ? prev : ids[0] ?? ''));
-  }, [isOpen, linkedRows]);
-
-  return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          <motion.div
-            animate={{opacity: 1}}
-            className="absolute inset-2 z-40 rounded-2xl bg-slate-950/40 backdrop-blur-sm sm:inset-3"
-            exit={{opacity: 0}}
-            initial={{opacity: 0}}
-            onClick={onClose}
-          />
-          <motion.div
-            animate={{y: 0}}
-            className="absolute bottom-2 left-2 right-2 z-50 flex max-h-[min(84dvh,calc(100%-1rem))] flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:bottom-3 sm:left-3 sm:right-3"
-            exit={{y: '100%'}}
-            initial={{y: '100%'}}
-            transition={{type: 'spring', damping: 28, stiffness: 300}}
-          >
-            <div className="flex justify-center py-3">
-              <div className="h-1.5 w-12 rounded-full bg-slate-200" />
-            </div>
-            <div className="flex items-center justify-between border-b border-slate-100 px-6 pb-4">
-              <div>
-                <h2 className="text-xl font-black text-slate-950">记录这次亲密</h2>
-                <p className="mt-1 text-xs text-slate-400">数据归你，羞耻心先下班。</p>
-              </div>
-              <button onClick={onClose} className="rounded-full bg-slate-100 p-2 text-slate-500">
-                <X size={20} />
-              </button>
-            </div>
-            <div className="flex-1 space-y-6 overflow-y-auto p-6">
-              {topBanter ? (
-                <div className="rounded-2xl border border-amber-200/90 bg-gradient-to-br from-amber-50 to-orange-50/80 px-4 py-3 shadow-sm">
-                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-amber-700/80">安全员插播</p>
-                  <p className="mt-1.5 text-sm font-bold leading-relaxed text-amber-950">{topBanter}</p>
-                </div>
-              ) : null}
-              <AdviceCard advice={advice} compact />
-              <OptionGroup<IntimacyType>
-                label="亲密类型"
-                options={Object.keys(intimacyTypeLabels) as IntimacyType[]}
-                value={type}
-                labels={intimacyTypeLabels}
-                onChange={setType}
-              />
-              <OptionGroup<ProtectionMethod>
-                label="保护方式"
-                options={Object.keys(protectionLabels) as ProtectionMethod[]}
-                value={protection}
-                labels={protectionLabels}
-                onChange={setProtection}
-              />
-              <div>
-                <p className="mb-3 text-sm font-black text-slate-700">体验评分</p>
-                <div className="flex justify-between rounded-3xl bg-slate-50 p-4">
-                  {[1, 2, 3, 4, 5].map((item) => (
-                    <button
-                      key={item}
-                      onClick={() => setRating(item)}
-                      className={item <= rating ? 'text-rose-500' : 'text-slate-300'}
-                    >
-                      <Flame className={item <= rating ? 'fill-rose-500' : ''} size={34} />
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <ToggleRow checked={consentChecked} label="双方明确同意" onChange={setConsentChecked} />
-              <ToggleRow
-                checked={sharedWithPartner}
-                label="共享给已绑定伴侣"
-                disabled={!partnerLinked && !sharedWithPartner}
-                onChange={setSharedWithPartner}
-              />
-              {!partnerLinked ? (
-                <p className="text-xs leading-5 text-amber-700">绑定伴侣后，才能向对方发起「法法同步」申请（对方需在收件箱确认）。</p>
-              ) : null}
-              {pickPartner ? (
-                <div className="rounded-2xl border border-violet-100 bg-violet-50/70 p-4">
-                  <p className="text-xs font-black text-violet-900">众乐乐 · 选择本次对象</p>
-                  <p className="mt-1 text-[11px] font-semibold leading-5 text-violet-800/85">
-                    私密保存与「法法同步」都要指明是哪位搭子，避免张冠李戴。
-                  </p>
-                  <select
-                    value={targetPartnerId}
-                    onChange={(e) => setTargetPartnerId(e.target.value)}
-                    className="mt-3 w-full rounded-2xl border border-violet-200 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-violet-400"
-                  >
-                    {linkedRows.map((r) => (
-                      <option key={r.partnerId} value={r.partnerId}>
-                        {r.peerNickname?.trim() || r.partnerId}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              ) : null}
-              {partnerLinked && sharedWithPartner ? (
-                <p className="text-xs leading-5 text-slate-500">
-                  不会立刻写入双方记录：对方在「伴侣 → 法法同步收件箱」接受后，才会各自生成一条带评分的同步记录。
-                </p>
-              ) : null}
-            </div>
-            <div className="ios-safe-bottom border-t border-slate-100 bg-white p-6">
-              <button
-                onClick={() =>
-                  onSave({
-                    type,
-                    protection,
-                    rating,
-                    consentChecked,
-                    sharedWithPartner,
-                    ...(pickPartner && targetPartnerId ? {targetPartnerId} : {}),
-                  })
-                }
-                className="flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 py-4 text-lg font-black text-white active:scale-[0.99]"
-              >
-                {shareMode ? <Send size={22} /> : <CheckCircle2 size={22} />}
-                {shareMode ? '发送同步申请' : '保存记录'}
-              </button>
-            </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
-  );
-}
-
 function PhraseComposer({
   onPublish,
   variant = 'card',
@@ -2525,88 +2555,6 @@ function PhraseComposer({
   );
 }
 
-function PublicPage({path}: {path: string}) {
-  const page = publicPages[path] ?? publicPages['/'];
-  return (
-    <main className="min-h-screen bg-[#F2F2F7] px-5 py-10 text-slate-900">
-      <div className="mx-auto max-w-3xl space-y-6">
-        <div className="flex flex-wrap items-center gap-4">
-          <img src="/logo.png" alt={brand.name} width={64} height={64} className="h-16 w-16 shrink-0 rounded-2xl bg-white object-cover shadow-sm ring-1 ring-slate-100" />
-          <div className="min-w-0">
-            <p className="text-lg font-black text-slate-900">{brand.name}</p>
-            <p className="mt-1 text-sm font-semibold text-slate-500">{brand.slogan}</p>
-          </div>
-        </div>
-        <a href="/app" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-rose-500 shadow-sm">
-          <Sparkles size={16} />
-          打开 {brand.name}
-        </a>
-        <section className="rounded-[2rem] bg-white p-8 shadow-sm">
-          <p className="text-xs font-black uppercase tracking-[0.28em] text-rose-500">{page.eyebrow}</p>
-          <h1 className="mt-3 text-4xl font-black tracking-tight">{page.title}</h1>
-          <p className="mt-4 text-lg leading-8 text-slate-600">{page.description}</p>
-        </section>
-        {page.sections.map((section) => (
-          <section key={section.title} className="rounded-[2rem] bg-white p-6 shadow-sm">
-            <h2 className="text-xl font-black">{section.title}</h2>
-            <p className="mt-3 whitespace-pre-line text-sm leading-7 text-slate-600">{section.body}</p>
-          </section>
-        ))}
-      </div>
-    </main>
-  );
-}
-
-const publicPages: Record<string, {eyebrow: string; title: string; description: string; sections: {title: string; body: string}[]}> = {
-  '/': {
-    eyebrow: 'landing',
-    title: '法了么：亲密生活的幽默安全员',
-    description: brand.promise,
-    sections: [
-      {title: '核心功能', body: '私密记录、伴侣绑定、经期预测、健康知识、预设短句轻社交。'},
-      {title: '内容边界', body: '不提供色情内容，不开放自由文本陌生聊天，不服务未成年人。'},
-    ],
-  },
-  '/privacy': {
-    eyebrow: 'privacy',
-    title: '隐私政策',
-    description: '亲密数据默认私密，伴侣共享需要明确授权。',
-    sections: [
-      {title: '我们收集什么', body: '账号信息、成年确认、亲密记录、周期记录、应用使用偏好和举报记录。'},
-      {title: '我们如何使用', body: '用于提供记录、预测、伴侣共享、健康提醒、内容治理和账号安全。不会出售个人亲密数据。'},
-      {title: '你的权利', body: '你可以导出、删除账号和数据，也可以随时关闭伴侣共享。'},
-    ],
-  },
-  '/terms': {
-    eyebrow: 'terms',
-    title: '服务条款',
-    description: '成年人可以幽默，但需要尊重同意、隐私和法律。',
-    sections: [
-      {title: '年龄限制', body: '本服务仅面向成年人。未成年人不得注册或使用。'},
-      {title: '禁止行为', body: '禁止骚扰、未成年人相关内容、非自愿内容、色情交易、仇恨或违法内容。'},
-      {title: '健康说明', body: '应用提供教育和提醒，不构成医疗诊断或治疗建议。'},
-    ],
-  },
-  '/support': {
-    eyebrow: 'support',
-    title: 'App Store 支持',
-    description: '遇到问题，先别上头，来这里找帮助。',
-    sections: [
-      {title: '联系方式', body: '支持邮箱：support@example.com。正式部署时请替换为你的域名邮箱。'},
-      {title: '常见问题', body: '忘记密码、解绑伴侣、删除账号、举报内容、周期预测不准，都可以在设置中处理。'},
-    ],
-  },
-  '/delete-account': {
-    eyebrow: 'data deletion',
-    title: '删除账号与数据',
-    description: '你可以删除账号及相关亲密记录、周期记录、伴侣关系和社交内容。',
-    sections: [
-      {title: '删除方式', body: '在 App 的“我的 - 合规与隐私 - 删除账号”发起；也可以联系支持邮箱。'},
-      {title: '处理周期', body: '验证身份后将在合理期限内删除可识别个人数据，法律要求保留的安全审计记录除外。'},
-    ],
-  },
-};
-
 function TabItem({icon, label, active, onClick}: {icon: React.ReactNode; label: string; active: boolean; onClick: () => void}) {
   return (
     <button onClick={onClick} className={`flex flex-col items-center justify-center gap-1 text-[10px] font-bold ${active ? 'text-rose-500' : 'text-slate-400'}`}>
@@ -2625,30 +2573,6 @@ function Card({title, action, children}: {title: string; action?: string; childr
       </div>
       {children}
     </section>
-  );
-}
-
-function PageTitle({title, subtitle}: {title: string; subtitle: string}) {
-  return (
-    <header>
-      <h1 className="text-3xl font-black tracking-tight text-slate-950">{title}</h1>
-      <p className="mt-2 text-sm leading-6 text-slate-500">{subtitle}</p>
-    </header>
-  );
-}
-
-function AdviceCard({advice, compact}: {advice: HealthAdvice; compact?: boolean}) {
-  return (
-    <div className={`rounded-[1.75rem] border p-5 ${advice.level === 'high' ? 'border-red-100 bg-red-50' : advice.level === 'medium' ? 'border-amber-100 bg-amber-50' : 'border-emerald-100 bg-emerald-50'}`}>
-      <div className="flex gap-3">
-        <div className="mt-0.5 text-slate-900">{advice.level === 'high' ? <Siren size={22} /> : <ShieldCheck size={22} />}</div>
-        <div>
-          <p className="font-black text-slate-950">{advice.title}</p>
-          <p className={`mt-1 text-sm leading-6 text-slate-600 ${compact ? 'line-clamp-2' : ''}`}>{advice.body}</p>
-          {!compact && <p className="mt-2 text-xs font-black text-slate-500">{advice.action}</p>}
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -2700,24 +2624,37 @@ function PermissionTile({active, title, body}: {active: boolean; title: string; 
   );
 }
 
-function renderRecordRow(record: IntimacyRecord, onDelete?: (id: string) => void) {
+function renderRecordRow(record: IntimacyRecord, onDelete?: (id: string) => void, fadingId?: string | null) {
+  const fading = fadingId === record.id;
   return (
-    <div key={record.id} className="flex items-center justify-between rounded-3xl bg-slate-50 p-4">
+    <motion.div
+      key={record.id}
+      layout
+      initial={false}
+      animate={{opacity: fading ? 0 : 1, y: fading ? 6 : 0}}
+      transition={{duration: 0.2, ease: 'easeOut'}}
+      className="flex items-center justify-between rounded-3xl bg-slate-50 p-4"
+    >
       <div>
         <p className="text-sm font-black text-slate-900">{record.occurredAt}</p>
-        <p className="mt-1 text-xs text-slate-500">
+        <p className="mt-1 text-xs text-slate-600">
           {intimacyTypeLabels[record.type]} · {protectionLabels[record.protection]} · {riskTone[record.riskLevel]}
         </p>
       </div>
       <div className="flex items-center gap-2">
-        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-rose-500">{record.rating}/5</span>
+        <span className="rounded-full bg-white px-3 py-1 text-xs font-black text-rose-600">{record.rating}/5</span>
         {onDelete && (
-          <button onClick={() => onDelete(record.id)} className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-500">
+          <button
+            type="button"
+            onClick={() => onDelete(record.id)}
+            aria-label={`删除 ${record.occurredAt} 的记录`}
+            className="rounded-full bg-slate-200 px-3 py-1 text-xs font-black text-slate-600"
+          >
             删除
           </button>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -2779,69 +2716,6 @@ function MenuLink({href, icon, label}: {href: string; icon: React.ReactNode; lab
       </span>
       <ChevronRight className="text-slate-300" size={18} />
     </a>
-  );
-}
-
-function ToggleRow({
-  checked,
-  label,
-  onChange,
-  disabled,
-}: {
-  checked: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={() => {
-        if (!disabled) {
-          onChange(!checked);
-        }
-      }}
-      className={`flex w-full items-center justify-between rounded-3xl bg-slate-50 p-4 text-left ${
-        disabled ? 'cursor-not-allowed opacity-50' : ''
-      }`}
-    >
-      <span className="text-sm font-black text-slate-800">{label}</span>
-      <span className={`h-7 w-12 rounded-full p-1 transition ${checked ? 'bg-rose-500' : 'bg-slate-300'}`}>
-        <span className={`block h-5 w-5 rounded-full bg-white transition ${checked ? 'translate-x-5' : ''}`} />
-      </span>
-    </button>
-  );
-}
-
-function OptionGroup<T extends string>({
-  label,
-  options,
-  value,
-  labels,
-  onChange,
-}: {
-  label: string;
-  options: T[];
-  value: T;
-  labels: Record<T, string>;
-  onChange: (value: T) => void;
-}) {
-  return (
-    <div>
-      <p className="mb-3 text-sm font-black text-slate-700">{label}</p>
-      <div className="flex flex-wrap gap-2">
-        {options.map((option) => (
-          <button
-            key={option}
-            onClick={() => onChange(option)}
-            className={`rounded-full px-4 py-2 text-sm font-bold ${value === option ? 'bg-rose-500 text-white' : 'bg-slate-100 text-slate-600'}`}
-          >
-            {labels[option]}
-          </button>
-        ))}
-      </div>
-    </div>
   );
 }
 
@@ -2913,88 +2787,4 @@ function PhraseSelect({
       </div>
     </motion.div>
   );
-}
-
-function predictCycle(cycle: CycleRecord, records: IntimacyRecord[]): CyclePrediction {
-  const start = new Date(cycle.periodStart);
-  const nextStart = addDays(start, cycle.cycleLength);
-  const nextEnd = addDays(nextStart, 5);
-  const fertileStart = addDays(nextStart, -15);
-  const fertileEnd = addDays(nextStart, -10);
-  const now = new Date();
-  const inPeriod = now >= nextStart && now <= nextEnd;
-  const inFertile = now >= fertileStart && now <= fertileEnd;
-  const tooFrequent = recordCountOnRecentUtcDays(records, new Date(), 2) >= 2;
-  let todayAdvice = defaultAdvice;
-
-  if (inPeriod) {
-    todayAdvice = {
-      level: 'high',
-      title: '经期窗口，先别硬闯副本',
-      body: '经期前后身体更敏感。如果仍要亲密，请充分沟通、注意卫生和保护，疼痛或不适就停止。',
-      action: '优先选择陪伴、热敷、休息。欲望很正常，照顾身体更高级。',
-    };
-  } else if (inFertile) {
-    todayAdvice = {
-      level: 'high',
-      title: '高风险窗口，别拿概率开玩笑',
-      body: '易孕期附近如果发生无保护性行为，意外怀孕风险更高。请认真使用可靠避孕方式。',
-      action: '没有保护就暂停；已发生风险行为请及时咨询专业人士。',
-    };
-  } else if (tooFrequent) {
-    todayAdvice = {
-      level: 'medium',
-      title: '记录有点密，别把身体当 KPI',
-      body: '频率没有统一标准，但疼痛、疲劳、焦虑或影响生活时，就是身体在敲桌子。',
-      action: '今天可以选择拥抱、聊天、自慰知识卡或早点睡。',
-    };
-  }
-
-  return {
-    nextPeriodStart: isoDate(nextStart),
-    nextPeriodEnd: isoDate(nextEnd),
-    fertileStart: isoDate(fertileStart),
-    fertileEnd: isoDate(fertileEnd),
-    todayAdvice,
-  };
-}
-
-function buildStats(records: IntimacyRecord[]) {
-  const month = isoDate(new Date()).slice(0, 7);
-  const monthRecords = records.filter((record) => record.occurredAt.startsWith(month));
-  const safeRecords = records.filter((record) => record.protection !== 'none');
-  return {
-    monthCount: monthRecords.length,
-    safeRate: records.length ? Math.round((safeRecords.length / records.length) * 100) : 0,
-    partnerShared: records.filter((record) => record.sharedWithPartner).length,
-  };
-}
-
-function calculateRisk(protection: ProtectionMethod, type: IntimacyType, cycleRisk: RiskLevel): RiskLevel {
-  if (type === 'solo' || type === 'cuddle' || type === 'kiss') {
-    return 'low';
-  }
-  if (protection === 'none' || cycleRisk === 'high') {
-    return 'high';
-  }
-  if (protection === 'not_sure') {
-    return 'medium';
-  }
-  return 'low';
-}
-
-function buildTags(draft: RecordDraft, riskLevel: RiskLevel) {
-  return [
-    intimacyTypeLabels[draft.type],
-    protectionLabels[draft.protection],
-    draft.consentChecked ? '同意明确' : '同意待确认',
-    riskTone[riskLevel],
-  ];
-}
-
-/** Count records whose occurredAt (yyyy-MM-dd) falls within the last `daySpan` 个东八区自然日（含 anchor 当日） */
-function recordCountOnRecentUtcDays(records: IntimacyRecord[], anchor: Date, daySpan: number): number {
-  if (daySpan < 1 || records.length === 0) return 0;
-  const allowed = recentShanghaiCalendarDays(anchor, daySpan);
-  return records.filter((r) => allowed.has(r.occurredAt)).length;
 }

@@ -48,6 +48,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     'Content-Type': 'application/json',
     ...(options.headers as Record<string, string> | undefined),
   };
+  headers['X-Request-ID'] =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
@@ -196,10 +198,10 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({phrase}),
     }),
-  resonatePost: (id: string) =>
+  resonatePost: (id: string, chip?: string) =>
     request<SocialPost>(`/api/v1/social/posts/${id}/resonate`, {
       method: 'POST',
-      body: JSON.stringify({}),
+      body: JSON.stringify(chip ? {chip} : {}),
     }),
   blockPost: (id: string) =>
     request<SocialPost>(`/api/v1/social/posts/${id}/block`, {

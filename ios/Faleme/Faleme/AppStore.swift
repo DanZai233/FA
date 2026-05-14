@@ -17,6 +17,7 @@ final class AppStore: ObservableObject {
         body: "同意、保护、清醒、舒适，这四样缺一项都别硬演偶像剧。",
         action: "先问一句“这样可以吗”，再检查保护措施。"
     )
+    @Published var cycleForecast: CyclePrediction?
     @Published var reminder = ReminderSummary(
         title: "今日安全员巡逻完毕",
         body: "同意、保护、清醒、舒适。成年人可以嘴硬，流程不能省。",
@@ -138,7 +139,7 @@ final class AppStore: ObservableObject {
             async let cycles = api.cycles()
             async let posts = api.posts()
             async let knowledgeCards = api.knowledgeCards()
-            async let prediction = api.prediction()
+            async let predictionFull = api.prediction()
             async let reminder = api.reminderSummary()
             async let partner = api.partner()
             async let partnerMessages = api.partnerMessages()
@@ -147,7 +148,9 @@ final class AppStore: ObservableObject {
             self.cycles = try await cycles
             self.posts = try await posts
             self.knowledgeCards = try await knowledgeCards
-            self.prediction = try await prediction.todayAdvice
+            let pred = try await predictionFull
+            self.cycleForecast = pred
+            self.prediction = pred.todayAdvice
             self.reminder = try await reminder
             self.partnerHub = try await partner
             self.partnerMessages = try await partnerMessages
@@ -267,7 +270,7 @@ final class AppStore: ObservableObject {
                 _ = try await api.createPartnerShareRequest(body)
                 await refreshCompanionData()
                 isOfflineDemo = false
-                flashHomeEcho(FalemeQuips.partnerShareAfterSend(senderRole: role))
+                flashHomeEcho(FalemeQuips.partnerShareAfterSend(senderRole: role) + " " + FalemeQuips.partnerSharePipelineNote())
             } catch {
                 isOfflineDemo = true
             }
@@ -304,7 +307,7 @@ final class AppStore: ObservableObject {
                 records[index] = saved
             }
             isOfflineDemo = false
-            flashHomeEcho(FalemeQuips.afterSaveBanter(role: role, rating: rating))
+            flashHomeEcho(FalemeQuips.postRecordEcho(role: role, rating: rating, type: type, protection: protection, cycle: cycleForecast))
         } catch {
             isOfflineDemo = true
         }
@@ -442,7 +445,9 @@ final class AppStore: ObservableObject {
             if let index = cycles.firstIndex(where: { $0.id == cycle.id }) {
                 cycles[index] = saved
             }
-            prediction = try await api.prediction().todayAdvice
+            let pred = try await api.prediction()
+            cycleForecast = pred
+            prediction = pred.todayAdvice
             isOfflineDemo = false
         } catch {
             isOfflineDemo = true
@@ -462,6 +467,7 @@ final class AppStore: ObservableObject {
                     authorAlias: alias.isEmpty ? "匿名成年人" : alias,
                     phrase: phrase,
                     resonanceCount: 0,
+                    resonanceChips: nil,
                     createdAt: Self.todayString,
                     reported: false,
                     blocked: false,
@@ -483,9 +489,9 @@ final class AppStore: ObservableObject {
         }
     }
 
-    func resonate(post: SocialPost) async {
+    func resonate(post: SocialPost, chip: String? = nil) async {
         do {
-            let updated = try await api.resonatePost(id: post.id)
+            let updated = try await api.resonatePost(id: post.id, chip: chip)
             replacePost(updated)
             isOfflineDemo = false
         } catch {
@@ -495,6 +501,7 @@ final class AppStore: ObservableObject {
                     authorAlias: post.authorAlias,
                     phrase: post.phrase,
                     resonanceCount: post.resonanceCount + 1,
+                    resonanceChips: post.resonanceChips,
                     createdAt: post.createdAt,
                     reported: post.reported,
                     blocked: post.blocked,
@@ -514,6 +521,7 @@ final class AppStore: ObservableObject {
                     authorAlias: post.authorAlias,
                     phrase: post.phrase,
                     resonanceCount: post.resonanceCount,
+                    resonanceChips: post.resonanceChips,
                     createdAt: post.createdAt,
                     reported: true,
                     blocked: post.blocked,
@@ -550,6 +558,27 @@ final class AppStore: ObservableObject {
         }
     }
 
+    /// 拉取导出 JSON、在本机生成年度回顾 HTML，并通过 `shareExportItem` 打开系统分享。
+    func prepareYearReviewHTML() async {
+        do {
+            let data = try await api.exportData()
+            let export = try JSONDecoder().decode(DataExport.self, from: data)
+            let html = YearReviewHTML.build(from: export)
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("faleme-year-review-\(Int(Date().timeIntervalSince1970)).html")
+            guard let out = html.data(using: .utf8) else {
+                privacyMessage = "生成本地页面失败。"
+                return
+            }
+            try out.write(to: url)
+            shareExportItem = ShareExportItem(url: url)
+            privacyMessage = "年度回顾为本地 HTML，可存文件或通过 AirDrop 分享。"
+            isOfflineDemo = false
+        } catch {
+            privacyMessage = "生成年报失败，请确认已连接后端。"
+            isOfflineDemo = true
+        }
+    }
+
     func deleteAccount() async {
         do {
             try await api.deleteAccount()
@@ -582,7 +611,7 @@ final class AppStore: ObservableObject {
             PartnerWire(id: "demo-partner", userId: "demo", partnerId: nil, inviteCode: "FALV1", status: "pending", canShare: false, createdAt: Self.todayString, confirmedAt: nil, peerNickname: nil)
         ])
         posts = [
-            SocialPost(id: "post-1", authorAlias: "匿名安全员", phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", resonanceCount: 128, createdAt: Self.todayString, reported: false, blocked: false, ipRegion: nil)
+            SocialPost(id: "post-1", authorAlias: "匿名安全员", phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", resonanceCount: 128, resonanceChips: nil, createdAt: Self.todayString, reported: false, blocked: false, ipRegion: nil)
         ]
         match = MatchCard(id: "match-demo", alias: "附近不存在的人", phrase: "今晚月色不错 / 这位成年人 / 申请抱抱 / 但安全第一", expiresAt: Self.todayString)
         partnerMessages = [

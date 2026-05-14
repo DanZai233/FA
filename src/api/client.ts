@@ -5,6 +5,7 @@ import type {
   IntimacyRecord,
   KnowledgeCard,
   MatchCard,
+  PartnerLinkWire,
   PartnerMessage,
   PhraseTemplate,
   ReminderSummary,
@@ -13,27 +14,87 @@ import type {
 } from '../types/domain';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8083';
-const DEMO_TOKEN = 'demo-token';
+
+const AUTH_KEY = 'faleme.authToken';
+
+let cachedToken: string | null | undefined;
+
+export function getAuthToken(): string | null {
+  if (cachedToken !== undefined) {
+    return cachedToken;
+  }
+  cachedToken = localStorage.getItem(AUTH_KEY);
+  return cachedToken;
+}
+
+export function setAuthToken(token: string | null) {
+  cachedToken = token;
+  if (token) {
+    localStorage.setItem(AUTH_KEY, token);
+  } else {
+    localStorage.removeItem(AUTH_KEY);
+  }
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getAuthToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${DEMO_TOKEN}`,
-      ...options.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error ?? `Request failed: ${response.status}`);
+    throw new Error((payload as {error?: string}).error ?? `Request failed: ${response.status}`);
   }
 
   return response.json() as Promise<T>;
 }
 
 export const api = {
+  captcha: () =>
+    request<{id: string; dataUrl: string; imageBase64: string; mimeType: string}>('/api/v1/auth/captcha'),
+  register: (body: {
+    email: string;
+    password: string;
+    captchaId: string;
+    captcha: string;
+    nickname?: string;
+    squareAlias?: string;
+    adultConfirmed: boolean;
+  }) =>
+    request<{token: string; user: UserProfile}>('/api/v1/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: body.email,
+        password: body.password,
+        captchaId: body.captchaId,
+        captcha: body.captcha,
+        nickname: body.nickname ?? '',
+        squareAlias: body.squareAlias ?? '',
+        role: 'switch',
+        adultConfirmed: body.adultConfirmed,
+      }),
+    }).then((res) => {
+      setAuthToken(res.token);
+      return res;
+    }),
+  loginEmail: (body: {email: string; password: string}) =>
+    request<{token: string; user: UserProfile}>('/api/v1/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }).then((res) => {
+      setAuthToken(res.token);
+      return res;
+    }),
+
   me: () => request<UserProfile>('/api/v1/me'),
   updateMe: (profile: Partial<UserProfile>) =>
     request<UserProfile>('/api/v1/me', {
@@ -68,19 +129,19 @@ export const api = {
     }),
   prediction: () => request<CyclePrediction>('/api/v1/cycles/prediction'),
   reminderSummary: () => request<ReminderSummary>('/api/v1/reminders/summary'),
-  partner: () => request<{status: 'none' | 'pending' | 'linked'; inviteCode?: string}>('/api/v1/partners'),
+  partner: () => request<PartnerLinkWire>('/api/v1/partners'),
   createPartnerInvite: () =>
-    request<{status: 'none' | 'pending' | 'linked'; inviteCode?: string}>('/api/v1/partners/invite', {
+    request<PartnerLinkWire>('/api/v1/partners/invite', {
       method: 'POST',
       body: JSON.stringify({}),
     }),
   acceptPartnerInvite: (inviteCode: string) =>
-    request<{status: 'none' | 'pending' | 'linked'; inviteCode?: string}>('/api/v1/partners/accept', {
+    request<PartnerLinkWire>('/api/v1/partners/accept', {
       method: 'POST',
       body: JSON.stringify({inviteCode}),
     }),
   unlinkPartner: () =>
-    request<{status: 'none' | 'pending' | 'linked'; inviteCode?: string}>('/api/v1/partners', {
+    request<PartnerLinkWire>('/api/v1/partners', {
       method: 'DELETE',
     }),
   partnerMessages: () => request<PartnerMessage[]>('/api/v1/partners/messages'),

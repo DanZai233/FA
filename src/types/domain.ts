@@ -24,11 +24,26 @@ export type PhraseSlot = 'tone' | 'subject' | 'action' | 'ending';
 
 export interface UserProfile {
   id: string;
+  /** 用户名：仅自己与伴侣可见（API 字段名仍为 nickname） */
   nickname: string;
+  /** 匿名广场展示身份，与用户名独立 */
+  squareAlias?: string;
   role: UserRole;
   adultConfirmed: boolean;
-  partnerStatus: PartnerLinkStatus;
+  partnerStatus?: PartnerLinkStatus;
   privacyLock?: boolean;
+  email?: string;
+}
+
+export interface PartnerLinkWire {
+  id?: string;
+  userId?: string;
+  partnerId?: string;
+  inviteCode?: string;
+  status: PartnerLinkStatus;
+  canShare?: boolean;
+  createdAt?: string;
+  confirmedAt?: string;
 }
 
 export interface IntimacyRecord {
@@ -94,6 +109,8 @@ export interface SocialPost {
 export interface PartnerMessage {
   id: string;
   userId: string;
+  /** 发送时的用户名（nickname），伴侣可见 */
+  authorNickname?: string;
   phrase: string;
   scene: string;
   createdAt: string;

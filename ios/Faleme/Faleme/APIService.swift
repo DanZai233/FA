@@ -8,8 +8,8 @@ struct APIService {
         try await request("/api/v1/me")
     }
 
-    func updateMe(nickname: String? = nil, role: UserRole? = nil, privacyLock: Bool? = nil) async throws -> UserProfile {
-        try await request("/api/v1/me", method: "PUT", body: UpdateProfilePayload(nickname: nickname, role: role, privacyLock: privacyLock))
+    func updateMe(nickname: String? = nil, squareAlias: String? = nil, role: UserRole? = nil, privacyLock: Bool? = nil) async throws -> UserProfile {
+        try await request("/api/v1/me", method: "PUT", body: UpdateProfilePayload(nickname: nickname, squareAlias: squareAlias, role: role, privacyLock: privacyLock))
     }
 
     func records() async throws -> [IntimacyRecord] {
@@ -137,6 +137,7 @@ private struct EmptyResponse: Decodable {}
 
 private struct UpdateProfilePayload: Encodable {
     var nickname: String?
+    var squareAlias: String?
     var role: UserRole?
     var privacyLock: Bool?
 }

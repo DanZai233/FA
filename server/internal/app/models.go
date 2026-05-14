@@ -43,7 +43,9 @@ const (
 type User struct {
 	ID             string    `json:"id"`
 	DeviceID       string    `json:"deviceId,omitempty"`
-	Nickname       string    `json:"nickname"`
+	Email          string    `json:"email,omitempty"`
+	Nickname       string    `json:"nickname"` // 用户名：仅自己与伴侣可见（API 字段名保持 nickname 兼容旧客户端）
+	SquareAlias    string    `json:"squareAlias"`
 	Role           UserRole  `json:"role"`
 	AdultConfirmed bool      `json:"adultConfirmed"`
 	PrivacyLock    bool      `json:"privacyLock"`
@@ -63,11 +65,12 @@ type PartnerLink struct {
 }
 
 type PartnerMessage struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"userId"`
-	Phrase    string    `json:"phrase"`
-	Scene     string    `json:"scene"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID             string    `json:"id"`
+	UserID         string    `json:"userId"`
+	AuthorNickname string    `json:"authorNickname,omitempty"` // 发送时的用户名（nickname），仅伴侣可见
+	Phrase         string    `json:"phrase"`
+	Scene          string    `json:"scene"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 type IntimacyRecord struct {
@@ -162,6 +165,23 @@ type Report struct {
 
 type AuthRequest struct {
 	Nickname       string   `json:"nickname"`
+	SquareAlias    string   `json:"squareAlias"`
+	Role           UserRole `json:"role"`
+	AdultConfirmed bool     `json:"adultConfirmed"`
+}
+
+type EmailLoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type RegisterRequest struct {
+	Email          string   `json:"email"`
+	Password       string   `json:"password"`
+	CaptchaID      string   `json:"captchaId"`
+	Captcha        string   `json:"captcha"`
+	Nickname       string   `json:"nickname"`
+	SquareAlias    string   `json:"squareAlias"`
 	Role           UserRole `json:"role"`
 	AdultConfirmed bool     `json:"adultConfirmed"`
 }
@@ -184,9 +204,10 @@ type CreateReportRequest struct {
 }
 
 type UpdateProfileRequest struct {
-	Nickname    string   `json:"nickname"`
-	Role        UserRole `json:"role"`
-	PrivacyLock *bool    `json:"privacyLock"`
+	Nickname     *string   `json:"nickname,omitempty"`
+	SquareAlias  *string   `json:"squareAlias,omitempty"`
+	Role         UserRole  `json:"role,omitempty"`
+	PrivacyLock  *bool     `json:"privacyLock,omitempty"`
 }
 
 type DataExport struct {

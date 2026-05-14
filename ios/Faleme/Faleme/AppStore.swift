@@ -32,6 +32,7 @@ final class AppStore: ObservableObject {
     @Published var isOfflineDemo = true
     @Published var privacyMessage = "免登录设备身份已启用"
     @Published var profileNickname = "免登录成年人"
+    @Published var profileSquareAlias = ""
     @Published var privacyLockEnabled = true
     @Published var shareExportItem: ShareExportItem?
 
@@ -49,6 +50,7 @@ final class AppStore: ObservableObject {
             do {
                 let me = try await api.updateMe(role: role)
                 profileNickname = me.nickname
+                profileSquareAlias = me.squareAlias ?? ""
                 privacyLockEnabled = me.privacyLock ?? true
                 isOfflineDemo = false
             } catch {
@@ -63,6 +65,7 @@ final class AppStore: ObservableObject {
             do {
                 let me = try await api.updateMe(privacyLock: on)
                 profileNickname = me.nickname
+                profileSquareAlias = me.squareAlias ?? ""
                 privacyLockEnabled = me.privacyLock ?? true
                 isOfflineDemo = false
             } catch {
@@ -72,14 +75,27 @@ final class AppStore: ObservableObject {
     }
 
     func saveNickname(_ raw: String) async {
-        let name = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !name.isEmpty else { return }
+        let name = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(32))
         do {
             let me = try await api.updateMe(nickname: name)
             profileNickname = me.nickname
+            profileSquareAlias = me.squareAlias ?? ""
             isOfflineDemo = false
         } catch {
             profileNickname = name
+            isOfflineDemo = true
+        }
+    }
+
+    func saveSquareAlias(_ raw: String) async {
+        let alias = String(raw.trimmingCharacters(in: .whitespacesAndNewlines).prefix(24))
+        do {
+            let me = try await api.updateMe(squareAlias: alias)
+            profileNickname = me.nickname
+            profileSquareAlias = me.squareAlias ?? ""
+            isOfflineDemo = false
+        } catch {
+            profileSquareAlias = alias
             isOfflineDemo = true
         }
     }
@@ -120,6 +136,7 @@ final class AppStore: ObservableObject {
     private func refreshProfileFromServer() async {
         guard let me = try? await api.me() else { return }
         profileNickname = me.nickname
+        profileSquareAlias = me.squareAlias ?? ""
         privacyLockEnabled = me.privacyLock ?? true
         role = me.role
         UserDefaults.standard.set(me.role.rawValue, forKey: "faleme.role")
@@ -161,7 +178,7 @@ final class AppStore: ObservableObject {
     }
 
     func sendPartnerMessage(phrase: String) async {
-        let optimistic = PartnerMessage(id: "local-msg-\(Date().timeIntervalSince1970)", userId: "local", phrase: phrase, scene: "partner", createdAt: Self.todayString)
+        let optimistic = PartnerMessage(id: "local-msg-\(Date().timeIntervalSince1970)", userId: "local", authorNickname: profileNickname, phrase: phrase, scene: "partner", createdAt: Self.todayString)
         partnerMessages.insert(optimistic, at: 0)
         do {
             let saved = try await api.createPartnerMessage(phrase: phrase)
@@ -225,10 +242,11 @@ final class AppStore: ObservableObject {
             posts.insert(post, at: 0)
             isOfflineDemo = false
         } catch {
+            let alias = profileSquareAlias.trimmingCharacters(in: .whitespacesAndNewlines)
             posts.insert(
                 SocialPost(
                     id: "local-\(Date().timeIntervalSince1970)",
-                    authorAlias: "匿名成年人",
+                    authorAlias: alias.isEmpty ? "匿名成年人" : alias,
                     phrase: phrase,
                     resonanceCount: 0,
                     createdAt: Self.todayString,
@@ -345,7 +363,7 @@ final class AppStore: ObservableObject {
         ]
         match = MatchCard(id: "match-demo", alias: "附近不存在的人", phrase: "今晚月色不错 / 这位成年人 / 申请抱抱 / 但安全第一", expiresAt: Self.todayString)
         partnerMessages = [
-            PartnerMessage(id: "msg-1", userId: "demo", phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", scene: "partner", createdAt: Self.todayString)
+            PartnerMessage(id: "msg-1", userId: "demo", authorNickname: "演示用户", phrase: "安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感", scene: "partner", createdAt: Self.todayString)
         ]
         knowledgeCards = [
             KnowledgeCard(id: "k-1", category: "保护", title: "安全套不是气氛杀手", body: "正确佩戴、全程使用、事后检查。", action: "先准备，再浪漫。", tone: "成年人不赌概率。")

@@ -10,7 +10,8 @@ import {
   Heart,
   Lock,
   MessageCircle,
-  Plus,
+  MoreHorizontal,
+  PenLine,
   RefreshCw,
   ShieldCheck,
   Siren,
@@ -29,7 +30,8 @@ import {
   riskTone,
   roleLabels,
 } from './design/copy';
-import {api} from './api/client';
+import {api, getAuthToken, setAuthToken} from './api/client';
+import {AuthScreen} from './AuthScreen';
 import type {
   CyclePrediction,
   CycleRecord,
@@ -38,6 +40,7 @@ import type {
   IntimacyType,
   KnowledgeCard,
   MatchCard,
+  PartnerLinkWire,
   PartnerMessage,
   PartnerLinkStatus,
   PhraseSlot,
@@ -155,6 +158,7 @@ const seedMessages: PartnerMessage[] = [
   {
     id: 'msg-1',
     userId: 'u-demo',
+    authorNickname: '嘴硬但健康的成年人',
     phrase: '安全员已上线 / 今日小火苗 / 提醒戴好装备 / 尊重同意最性感',
     scene: 'partner',
     createdAt: isoDate(addDays(today, -1)),
@@ -181,6 +185,41 @@ const randomPhraseParts = (): Record<PhraseSlot, string> => ({
   action: randomItem(phraseBook.actions),
   ending: randomItem(phraseBook.endings),
 });
+
+/** 预设拼句各槽位的俏皮视觉（仅 Web UI） */
+const phraseSlotUI: Record<
+  PhraseSlot,
+  {emoji: string; blurb: string; idle: string; active: string; glow: string}
+> = {
+  tone: {
+    emoji: '✨',
+    blurb: '先定个语气～',
+    idle: 'border-violet-200/80 bg-white/75 text-violet-950 shadow-sm hover:border-violet-300 hover:bg-violet-50/90',
+    active: 'border-transparent bg-gradient-to-br from-violet-500 via-fuchsia-500 to-pink-500 text-white',
+    glow: 'shadow-lg shadow-violet-300/50',
+  },
+  subject: {
+    emoji: '🧸',
+    blurb: '今天谁是主角',
+    idle: 'border-sky-200/80 bg-white/75 text-sky-950 shadow-sm hover:border-sky-300 hover:bg-sky-50/90',
+    active: 'border-transparent bg-gradient-to-br from-sky-400 to-cyan-400 text-white',
+    glow: 'shadow-lg shadow-sky-300/45',
+  },
+  action: {
+    emoji: '💞',
+    blurb: '发生点小剧情',
+    idle: 'border-rose-200/80 bg-white/75 text-rose-950 shadow-sm hover:border-rose-300 hover:bg-rose-50/90',
+    active: 'border-transparent bg-gradient-to-br from-rose-400 to-amber-400 text-white',
+    glow: 'shadow-lg shadow-rose-300/45',
+  },
+  ending: {
+    emoji: '🎀',
+    blurb: '最后一笔俏皮',
+    idle: 'border-amber-200/80 bg-white/75 text-amber-950 shadow-sm hover:border-amber-300 hover:bg-amber-50/90',
+    active: 'border-transparent bg-gradient-to-br from-amber-400 to-orange-400 text-white',
+    glow: 'shadow-lg shadow-amber-300/40',
+  },
+};
 
 const roleTheme = (role: UserRole) => {
   const isReceiver = role === 'receiver';
@@ -209,14 +248,16 @@ export default function App() {
 
 function MobileApp() {
   const [offlineMode, setOfflineMode] = useState(() => localStorage.getItem('faleme.offline.enabled') === 'true');
+  const [authPhase, setAuthPhase] = useState<'boot' | 'anon' | 'in'>(() => (getAuthToken() ? 'boot' : 'anon'));
   const [activeTab, setActiveTab] = useState<TabKey>('home');
   const [profile, setProfile] = useState<UserProfile>({
-    id: 'u-demo',
-    nickname: '嘴硬但健康的成年人',
-    role: 'initiator',
+    id: '',
+    nickname: '',
+    role: 'switch',
     adultConfirmed: true,
-    partnerStatus: 'linked',
+    partnerStatus: 'none',
   });
+  const [partnerLink, setPartnerLink] = useState<PartnerLinkWire | null>(null);
   const [records, setRecords] = useState<IntimacyRecord[]>(seedRecords);
   const [cycle, setCycle] = useState<CycleRecord>(seedCycle);
   const [posts, setPosts] = useState<SocialPost[]>(socialSeed);
@@ -225,12 +266,28 @@ function MobileApp() {
   const [recordSheetOpen, setRecordSheetOpen] = useState(false);
   const [apiStatus, setApiStatus] = useState<'connected' | 'offline-demo'>('offline-demo');
 
+  useEffect(() => {
+    if (authPhase !== 'boot') {
+      return;
+    }
+    api
+      .me()
+      .then(() => setAuthPhase('in'))
+      .catch(() => {
+        setAuthToken(null);
+        setAuthPhase('anon');
+      });
+  }, [authPhase]);
+
   const localPrediction = useMemo(() => predictCycle(cycle, records), [cycle, records]);
   const [remotePrediction, setRemotePrediction] = useState<CyclePrediction | null>(null);
   const prediction = remotePrediction ?? localPrediction;
   const stats = useMemo(() => buildStats(records), [records]);
 
   useEffect(() => {
+    if (authPhase !== 'in') {
+      return;
+    }
     let ignore = false;
     Promise.all([
       api.me(),
@@ -239,17 +296,19 @@ function MobileApp() {
       api.posts(),
       api.prediction(),
       api.partnerMessages(),
+      api.partner(),
       api.reminderSummary(),
     ])
-      .then(([nextProfile, nextRecords, nextCycles, nextPosts, nextPrediction, nextMessages, nextSummary]) => {
+      .then(([nextProfile, nextRecords, nextCycles, nextPosts, nextPrediction, nextMessages, nextPartner, nextSummary]) => {
         if (ignore) {
           return;
         }
         setProfile((prev) => ({
           ...prev,
           ...nextProfile,
-          partnerStatus: prev.partnerStatus,
+          partnerStatus: nextPartner.status,
         }));
+        setPartnerLink(nextPartner);
         setRecords(Array.isArray(nextRecords) ? nextRecords : []);
         const cycles = Array.isArray(nextCycles) ? nextCycles : [];
         if (cycles[0]) {
@@ -269,13 +328,35 @@ function MobileApp() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [authPhase]);
 
   if (offlineMode) {
     return <OfflineModeView onExit={() => {
       localStorage.setItem('faleme.offline.enabled', 'false');
       setOfflineMode(false);
     }} />;
+  }
+
+  if (authPhase === 'boot') {
+    return (
+      <div className="flex min-h-screen justify-center bg-gradient-to-br from-[#fdf2f8] via-[#f4f4fb] to-[#fffbeb]">
+        <div className="flex max-w-[430px] flex-1 items-center justify-center text-sm font-bold text-slate-500">加载中…</div>
+      </div>
+    );
+  }
+
+  if (authPhase === 'anon') {
+    return (
+      <div className="flex min-h-screen justify-center bg-slate-100">
+        <AuthScreen
+          onAuthed={() => setAuthPhase('in')}
+          onOffline={() => {
+            localStorage.setItem('faleme.offline.enabled', 'true');
+            setOfflineMode(true);
+          }}
+        />
+      </div>
+    );
   }
 
   const saveRecord = (draft: RecordDraft) => {
@@ -298,15 +379,17 @@ function MobileApp() {
   };
 
   const publishPhrase = (phrase: string) => {
+    const clipped = Array.from(phrase.trim()).slice(0, 320).join('');
+    if (!clipped) return;
     const optimisticPost: SocialPost = {
       id: `p-${Date.now()}`,
-      authorAlias: '匿名成年人',
-      phrase,
+      authorAlias: profile.squareAlias?.trim() || '匿名成年人',
+      phrase: clipped,
       resonanceCount: 0,
       createdAt: isoDate(new Date()),
     };
     setPosts((prev) => [optimisticPost, ...prev]);
-    api.createPost(phrase)
+    api.createPost(clipped)
       .then((post) => {
         setPosts((prev) => prev.map((item) => (item.id === optimisticPost.id ? post : item)));
         setApiStatus('connected');
@@ -317,7 +400,7 @@ function MobileApp() {
   const theme = roleTheme(profile.role);
 
   return (
-    <div className="flex min-h-screen justify-center bg-slate-100">
+    <div className="flex min-h-screen justify-center bg-gradient-to-br from-[#fdf2f8] via-[#f4f4fb] to-[#fffbeb]">
       <div className={`ios-safe-top relative flex min-h-screen w-full max-w-[430px] flex-col overflow-hidden ${theme.pageBg} shadow-2xl`}>
         <main className="flex-1 overflow-y-auto pb-28">
           {activeTab === 'home' && (
@@ -357,12 +440,13 @@ function MobileApp() {
           )}
           {activeTab === 'partner' && (
             <PartnerView
-              status={profile.partnerStatus}
+              partner={partnerLink ?? {status: 'none'}}
               messages={partnerMessages}
               onSendMessage={(phrase) => {
                 const optimistic: PartnerMessage = {
                   id: `msg-${Date.now()}`,
                   userId: profile.id,
+                  authorNickname: profile.nickname?.trim() || '我',
                   phrase,
                   scene: 'partner',
                   createdAt: isoDate(new Date()),
@@ -375,30 +459,37 @@ function MobileApp() {
                   })
                   .catch(() => setApiStatus('offline-demo'));
               }}
-              onAcceptInvite={(inviteCode) => {
-                api.acceptPartnerInvite(inviteCode)
-                  .then((link) => {
-                    setProfile((prev) => ({...prev, partnerStatus: link.status}));
-                    setApiStatus('connected');
-                  })
-                  .catch(() => setApiStatus('offline-demo'));
+              onCreateInvite={async () => {
+                try {
+                  const link = await api.createPartnerInvite();
+                  setPartnerLink(link);
+                  setProfile((p) => ({...p, partnerStatus: link.status}));
+                  if (link.inviteCode) {
+                    await navigator.clipboard?.writeText(link.inviteCode).catch(() => {});
+                  }
+                  setApiStatus('connected');
+                } catch {
+                  setApiStatus('offline-demo');
+                }
               }}
-              onStatusChange={(partnerStatus) => {
-                setProfile((prev) => ({...prev, partnerStatus}));
-                if (partnerStatus === 'linked') {
-                  api.createPartnerInvite()
-                    .then((link) => {
-                      setProfile((prev) => ({...prev, partnerStatus: link.status}));
-                      setApiStatus('connected');
-                    })
-                    .catch(() => setApiStatus('offline-demo'));
-                } else {
-                  api.unlinkPartner()
-                    .then((link) => {
-                      setProfile((prev) => ({...prev, partnerStatus: link.status}));
-                      setApiStatus('connected');
-                    })
-                    .catch(() => setApiStatus('offline-demo'));
+              onUnlink={async () => {
+                try {
+                  const link = await api.unlinkPartner();
+                  setPartnerLink(link);
+                  setProfile((p) => ({...p, partnerStatus: link.status}));
+                  setApiStatus('connected');
+                } catch {
+                  setApiStatus('offline-demo');
+                }
+              }}
+              onAcceptInvite={async (code) => {
+                try {
+                  const link = await api.acceptPartnerInvite(code);
+                  setPartnerLink(link);
+                  setProfile((p) => ({...p, partnerStatus: link.status}));
+                  setApiStatus('connected');
+                } catch {
+                  setApiStatus('offline-demo');
                 }
               }}
             />
@@ -438,6 +529,26 @@ function MobileApp() {
             <ProfileView
               profile={profile}
               records={records}
+              onSaveUsername={(nickname) => {
+                const clipped = Array.from(nickname.trim()).slice(0, 32).join('');
+                api
+                  .updateMe({nickname: clipped})
+                  .then((me) => {
+                    setProfile((prev) => ({...prev, ...me}));
+                    setApiStatus('connected');
+                  })
+                  .catch(() => setApiStatus('offline-demo'));
+              }}
+              onSaveSquareAlias={(squareAlias) => {
+                const clipped = Array.from(squareAlias.trim()).slice(0, 24).join('');
+                api
+                  .updateMe({squareAlias: clipped})
+                  .then((me) => {
+                    setProfile((prev) => ({...prev, ...me}));
+                    setApiStatus('connected');
+                  })
+                  .catch(() => setApiStatus('offline-demo'));
+              }}
               onRoleChange={(role) => {
                 setProfile((prev) => ({...prev, role}));
                 api.updateMe({role}).catch(() => setApiStatus('offline-demo'));
@@ -463,18 +574,25 @@ function MobileApp() {
               onDeleteAccount={() => {
                 api.deleteMe()
                   .then(() => {
+                    setAuthToken(null);
+                    setAuthPhase('anon');
                     setRecords([]);
                     setPosts([]);
-                    setProfile((prev) => ({...prev, nickname: '已删除用户', partnerStatus: 'none'}));
+                    setPartnerLink({status: 'none'});
+                    setProfile({id: '', nickname: '', squareAlias: '', role: 'switch', adultConfirmed: true, partnerStatus: 'none'});
                     setApiStatus('connected');
                   })
                   .catch(() => setApiStatus('offline-demo'));
+              }}
+              onLogout={() => {
+                setAuthToken(null);
+                setAuthPhase('anon');
               }}
             />
           )}
         </main>
 
-        <nav className="ios-safe-bottom absolute bottom-0 z-20 w-full border-t border-slate-200 bg-white/90 backdrop-blur-xl">
+        <nav className="ios-safe-bottom absolute bottom-0 z-20 w-full border-t border-white/50 bg-white/80 backdrop-blur-xl">
           <div className="grid h-16 grid-cols-5 px-2">
             <TabItem icon={<Flame size={22} />} label="记录" active={activeTab === 'home'} onClick={() => setActiveTab('home')} />
             <TabItem icon={<CalendarIcon size={22} />} label="法法日历" active={activeTab === 'cycle'} onClick={() => setActiveTab('cycle')} />
@@ -796,44 +914,59 @@ function CycleView({
 }
 
 function PartnerView({
-  status,
+  partner,
   messages,
-  onStatusChange,
   onSendMessage,
+  onCreateInvite,
+  onUnlink,
   onAcceptInvite,
 }: {
-  status: PartnerLinkStatus;
+  partner: PartnerLinkWire;
   messages: PartnerMessage[];
-  onStatusChange: (status: PartnerLinkStatus) => void;
   onSendMessage: (phrase: string) => void;
-  onAcceptInvite: (inviteCode: string) => void;
+  onCreateInvite: () => Promise<void>;
+  onUnlink: () => Promise<void>;
+  onAcceptInvite: (inviteCode: string) => Promise<void>;
 }) {
-  const linked = status === 'linked';
+  const linked = partner.status === 'linked';
+  const pending = partner.status === 'pending';
+  const displayCode = (partner.inviteCode ?? '').trim();
   const messageList = messages ?? [];
-  const [inviteCode, setInviteCode] = useState('');
+  const [peerInviteInput, setPeerInviteInput] = useState('');
+  const [busy, setBusy] = useState(false);
   const [parts, setParts] = useState<Record<PhraseSlot, string>>(() => randomPhraseParts());
+  const [partnerShufflePop, setPartnerShufflePop] = useState(0);
   const phrase = `${parts.tone} / ${parts.subject} / ${parts.action} / ${parts.ending}`;
+  const title = linked ? '已绑定心动搭子' : pending ? '邀请已生成' : '等待绑定搭子';
+  const subtitle = linked
+    ? '共享不是偷看，所有记录都要逐项授权。'
+    : pending
+      ? '把下方邀请码发给对方，对方在「接受邀请」里输入即可完成绑定。'
+      : '生成专属邀请码，交给对方确认后再进入同步模式。';
+
   return (
     <section className="space-y-5 p-5 pt-8">
       <PageTitle title="伴侣绑定" subtitle="两个人的事，权限也要两个人确认。" />
-      <div className="overflow-hidden rounded-[2rem] bg-slate-950 p-5 text-white shadow-xl">
+      <div className="overflow-hidden rounded-[2rem] border border-white/30 bg-slate-950/95 p-5 text-white shadow-xl shadow-rose-200/30 backdrop-blur-xl">
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.25em] text-white/40">partner link</p>
-            <h2 className="mt-2 text-2xl font-black">{linked ? '已绑定心动搭子' : '等待绑定搭子'}</h2>
-            <p className="mt-2 text-sm leading-6 text-white/65">
-              {linked ? '共享不是偷看，所有记录都要逐项授权。' : '把邀请码交给对方，双方确认后再进入同步模式。'}
-            </p>
+            <h2 className="mt-2 text-2xl font-black">{title}</h2>
+            <p className="mt-2 text-sm leading-6 text-white/65">{subtitle}</p>
           </div>
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-rose-200">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-rose-200">
             <Heart className={linked ? 'fill-rose-200' : ''} size={28} />
           </div>
         </div>
-        <div className="mt-6 rounded-3xl bg-white p-4 text-slate-950">
+        <div className="mt-6 rounded-3xl border border-white/20 bg-white p-4 text-slate-950 shadow-inner">
           <p className="text-xs font-black text-slate-400">绑定邀请码</p>
-          <div className="mt-2 flex items-center justify-between">
-            <span className="font-mono text-4xl font-black tracking-[0.18em]">FALV1</span>
-            <span className="rounded-full bg-rose-50 px-3 py-1 text-xs font-black text-rose-500">{linked ? '已确认' : '待发送'}</span>
+          <div className="mt-2 flex items-center justify-between gap-3">
+            <span className="break-all font-mono text-3xl font-black tracking-[0.12em] sm:text-4xl">
+              {linked ? '——' : displayCode || '待生成'}
+            </span>
+            <span className="shrink-0 rounded-full bg-rose-50 px-3 py-1 text-xs font-black text-rose-500">
+              {linked ? '已确认' : pending ? '待对方' : '未生成'}
+            </span>
           </div>
         </div>
         <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[11px] font-black">
@@ -842,29 +975,50 @@ function PartnerView({
           <div className="rounded-2xl bg-white/10 p-3">逐项共享</div>
         </div>
         <button
-          onClick={() => {
-            if (!linked) navigator.clipboard?.writeText('FALV1').catch(() => {});
-            onStatusChange(linked ? 'none' : 'linked');
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              if (linked) {
+                await onUnlink();
+              } else {
+                await onCreateInvite();
+              }
+            } finally {
+              setBusy(false);
+            }
           }}
-          className="mt-5 w-full rounded-2xl bg-white py-3 text-sm font-black text-slate-950 active:scale-[0.99]"
+          className="mt-5 w-full rounded-2xl bg-white py-3 text-sm font-black text-slate-950 active:scale-[0.99] disabled:opacity-50"
         >
-          {linked ? '解除绑定' : '生成并复制邀请码'}
+          {linked ? '解除绑定' : pending ? '重新生成并复制' : '生成并复制邀请码'}
         </button>
       </div>
 
-      <Card title="接受对方邀请" action="输入 6 位码">
+      <Card title="接受对方邀请" action="输入邀请码">
         <div className="space-y-3">
           <input
-            value={inviteCode}
-            onChange={(event) => setInviteCode(event.target.value.toUpperCase())}
-            placeholder="例如 FALV1"
-            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-lg font-black tracking-[0.18em] outline-none focus:border-rose-300"
+            value={peerInviteInput}
+            onChange={(event) => setPeerInviteInput(event.target.value.toUpperCase())}
+            placeholder="对方发你的邀请码"
+            className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 font-mono text-lg font-black tracking-[0.12em] outline-none focus:border-rose-300"
           />
           <button
-            onClick={() => {
-              if (inviteCode.trim()) onAcceptInvite(inviteCode.trim());
+            type="button"
+            disabled={busy}
+            onClick={async () => {
+              if (!peerInviteInput.trim()) {
+                return;
+              }
+              setBusy(true);
+              try {
+                await onAcceptInvite(peerInviteInput.trim());
+                setPeerInviteInput('');
+              } finally {
+                setBusy(false);
+              }
             }}
-            className="w-full rounded-2xl bg-slate-950 py-3 text-sm font-black text-white"
+            className="w-full rounded-2xl bg-slate-950 py-3 text-sm font-black text-white disabled:opacity-50"
           >
             接受邀请并绑定
           </button>
@@ -887,18 +1041,63 @@ function PartnerView({
       </Card>
 
       <Card title="给伴侣发一句" action="预设短句">
-        <div className="space-y-3">
-          <div className="rounded-3xl bg-slate-950 p-4 text-sm font-bold leading-6 text-white">{phrase}</div>
-          <PhraseSelect label="语气" value={parts.tone} values={phraseBook.tones} onChange={(tone) => setParts((prev) => ({...prev, tone}))} />
-          <PhraseSelect label="主语" value={parts.subject} values={phraseBook.subjects} onChange={(subject) => setParts((prev) => ({...prev, subject}))} />
-          <PhraseSelect label="动作" value={parts.action} values={phraseBook.actions} onChange={(action) => setParts((prev) => ({...prev, action}))} />
-          <PhraseSelect label="收尾" value={parts.ending} values={phraseBook.endings} onChange={(ending) => setParts((prev) => ({...prev, ending}))} />
-          <button onClick={() => setParts(randomPhraseParts())} className="w-full rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-700">
+        <div className="relative space-y-4 overflow-hidden rounded-[1.5rem] border border-rose-100/80 bg-gradient-to-br from-[#fff7fb] via-[#f8f4ff] to-[#eefcff] p-3 ring-1 ring-white/80">
+          <motion.div
+            aria-hidden
+            className="pointer-events-none absolute right-2 top-1 text-2xl opacity-20"
+            animate={{y: [0, -4, 0]}}
+            transition={{duration: 3.5, repeat: Infinity, ease: 'easeInOut'}}
+          >
+            💌
+          </motion.div>
+          <div className="rounded-2xl bg-gradient-to-r from-rose-200/70 via-violet-200/60 to-sky-200/70 p-[1.5px] shadow-sm">
+            <div className="rounded-[0.9rem] bg-white/90 px-3 py-3 backdrop-blur-sm">
+              <motion.p
+                key={phrase}
+                initial={{opacity: 0.75, y: 6, scale: 0.99}}
+                animate={{opacity: 1, y: 0, scale: 1}}
+                transition={{type: 'spring', stiffness: 400, damping: 24}}
+                className="text-center text-sm font-bold leading-relaxed text-slate-800"
+              >
+                {phrase}
+              </motion.p>
+            </div>
+          </div>
+          <PhraseSelect slot="tone" label="语气" value={parts.tone} values={phraseBook.tones} onChange={(tone) => setParts((prev) => ({...prev, tone}))} />
+          <PhraseSelect slot="subject" label="主语" value={parts.subject} values={phraseBook.subjects} onChange={(subject) => setParts((prev) => ({...prev, subject}))} />
+          <PhraseSelect slot="action" label="动作" value={parts.action} values={phraseBook.actions} onChange={(action) => setParts((prev) => ({...prev, action}))} />
+          <PhraseSelect slot="ending" label="收尾" value={parts.ending} values={phraseBook.endings} onChange={(ending) => setParts((prev) => ({...prev, ending}))} />
+          <motion.button
+            type="button"
+            onClick={() => {
+              setParts(randomPhraseParts());
+              setPartnerShufflePop((n) => n + 1);
+            }}
+            whileHover={{scale: 1.02}}
+            whileTap={{scale: 0.97}}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-200/80 bg-white/90 py-3 text-sm font-black text-violet-800 shadow-sm"
+          >
+            <motion.span
+              key={partnerShufflePop}
+              initial={{rotate: -45, scale: 0.75}}
+              animate={{rotate: 0, scale: 1}}
+              transition={{type: 'spring', stiffness: 480, damping: 14}}
+              className="inline-flex text-violet-600"
+            >
+              <RefreshCw size={16} />
+            </motion.span>
             随机来一句
-          </button>
-          <button onClick={() => onSendMessage(phrase)} className="w-full rounded-2xl bg-rose-500 py-3 text-sm font-black text-white">
+          </motion.button>
+          <motion.button
+            type="button"
+            onClick={() => onSendMessage(phrase)}
+            whileHover={{scale: 1.02}}
+            whileTap={{scale: 0.97}}
+            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-rose-500 to-pink-500 py-3 text-sm font-black text-white shadow-md shadow-rose-300/40"
+          >
+            <Sparkles size={16} className="shrink-0" />
             发送给伴侣
-          </button>
+          </motion.button>
         </div>
       </Card>
 
@@ -906,7 +1105,8 @@ function PartnerView({
         <div className="space-y-3">
           {messageList.map((message) => (
             <div key={message.id} className="rounded-3xl bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-400">{message.createdAt}</p>
+              <p className="text-xs font-black text-slate-600">{message.authorNickname?.trim() || '未设置'}</p>
+              <p className="mt-1 text-xs font-bold text-slate-400">{message.createdAt}</p>
               <p className="mt-2 text-sm font-black leading-6 text-slate-800">{message.phrase}</p>
             </div>
           ))}
@@ -930,8 +1130,21 @@ function SquareView({
   onReport: (id: string) => void;
   onBlock: (id: string) => void;
 }) {
+  type SquareSheet = 'write' | 'compose' | 'more' | null;
+  const [sheet, setSheet] = useState<SquareSheet>(null);
+  const [draft, setDraft] = useState('');
+  const [menuPostId, setMenuPostId] = useState<string | null>(null);
   const [match, setMatch] = useState<MatchCard | null>(matchSeed);
-  const totalResonance = posts.reduce((sum, post) => sum + post.resonanceCount, 0);
+  const totalResonance = useMemo(() => posts.reduce((sum, post) => sum + post.resonanceCount, 0), [posts]);
+  const maxChars = 320;
+
+  useEffect(() => {
+    if (!menuPostId) return;
+    const onPointerDown = () => setMenuPostId(null);
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => document.removeEventListener('pointerdown', onPointerDown);
+  }, [menuPostId]);
+
   const shakeMatch = () => {
     api.shake()
       .then(setMatch)
@@ -943,109 +1156,325 @@ function SquareView({
         }),
       );
   };
-  return (
-    <section className="space-y-5 p-5 pt-8">
-      <PageTitle title="预设广场" subtitle="不开放自由聊天。成年人发言，也要带刹车。" />
-      <div className="rounded-[2rem] bg-gradient-to-br from-slate-950 to-slate-800 p-5 text-white shadow-xl">
-        <p className="text-xs font-black uppercase tracking-[0.25em] text-white/35">safe square</p>
-        <h2 className="mt-2 text-2xl font-black">今日广场温度</h2>
-        <p className="mt-2 text-sm leading-6 text-white/65">只允许预设拼句、共鸣、举报和屏蔽。热闹可以，失控不行。</p>
-        <div className="mt-5 grid grid-cols-3 gap-2">
-          <InfoPillDark label="留言" value={`${posts.length} 条`} />
-          <InfoPillDark label="共鸣" value={`${totalResonance}`} />
-          <InfoPillDark label="自由聊" value="0" />
-        </div>
-      </div>
-      <PhraseComposer onPublish={onPublish} />
 
-      <Card title="摇一摇轻匹配" action="只给预设短句">
-        <div className="space-y-3">
-          {match ? (
-            <div className="rounded-3xl bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-400">匹配到：{match.alias}</p>
-              <p className="mt-2 text-sm font-bold leading-6 text-slate-800">{match.phrase}</p>
-            </div>
-          ) : (
-            <p className="text-sm text-slate-500">暂时没有匹配。宇宙建议你先喝水。</p>
-          )}
+  const closeSheet = () => {
+    setSheet(null);
+    setDraft('');
+  };
+
+  const submitWrite = () => {
+    const clipped = Array.from(draft.trim()).slice(0, maxChars).join('');
+    if (!clipped) return;
+    onPublish(clipped);
+    closeSheet();
+  };
+
+  const draftRunes = [...draft].length;
+
+  return (
+    <>
+      <section className="space-y-3 p-5 pt-6 pb-32">
+        {posts.length === 0 ? (
+          <p className="py-20 text-center text-sm text-slate-400">还没有留言。点下面写一句，或从预设拼一句。</p>
+        ) : (
+          posts.map((post) => (
+            <article
+              key={post.id}
+              className="rounded-2xl border border-white/70 bg-white/85 px-4 py-3 shadow-sm backdrop-blur-md"
+            >
+              <div className="flex gap-3">
+                <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-slate-100 text-xs font-black text-slate-500">
+                  {(post.authorAlias || '?').slice(0, 1)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="truncate text-xs font-bold text-slate-400">{post.authorAlias}</p>
+                    <button
+                      type="button"
+                      aria-label="更多"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setMenuPostId((id) => (id === post.id ? null : post.id));
+                      }}
+                      className="shrink-0 rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                    >
+                      <MoreHorizontal size={18} />
+                    </button>
+                  </div>
+                  {menuPostId === post.id && (
+                    <div
+                      className="mt-2 flex flex-wrap gap-1.5"
+                      onPointerDown={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onReport(post.id);
+                          setMenuPostId(null);
+                        }}
+                        className={`rounded-full px-2.5 py-1 text-[11px] font-black ${post.reported ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}
+                      >
+                        {post.reported ? '已举报' : '举报'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onBlock(post.id);
+                          setMenuPostId(null);
+                        }}
+                        className="rounded-full bg-slate-900 px-2.5 py-1 text-[11px] font-black text-white"
+                      >
+                        屏蔽
+                      </button>
+                    </div>
+                  )}
+                  <p className="mt-1 whitespace-pre-wrap break-words text-[15px] font-semibold leading-relaxed text-slate-800">
+                    {post.phrase}
+                  </p>
+                  <div className="mt-2 flex items-center gap-3 text-xs font-bold text-slate-400">
+                    <button
+                      type="button"
+                      onClick={() => onResonate(post.id)}
+                      className="inline-flex items-center gap-1 rounded-full text-rose-500 hover:text-rose-600"
+                    >
+                      <Heart size={14} className="shrink-0" />
+                      {post.resonanceCount}
+                    </button>
+                    <span className="tabular-nums">{post.createdAt}</span>
+                  </div>
+                </div>
+              </div>
+            </article>
+          ))
+        )}
+      </section>
+
+      <div className="pointer-events-none fixed bottom-0 left-1/2 z-[25] flex w-full max-w-[430px] -translate-x-1/2 justify-center px-4 pb-[calc(env(safe-area-inset-bottom,0px)+5.25rem)] pt-2">
+        <div className="pointer-events-auto flex w-full gap-1.5 rounded-2xl border border-white/70 bg-white/90 p-1.5 shadow-lg backdrop-blur-xl">
           <button
-            onClick={shakeMatch}
-            className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-800"
+            type="button"
+            onClick={() => {
+              setMenuPostId(null);
+              setSheet('write');
+            }}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-black text-slate-800 hover:bg-slate-50"
           >
-            <RefreshCw size={16} />
-            摇一下，随机匹配预设句
+            <PenLine size={16} />
+            写一句
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMenuPostId(null);
+              setSheet('compose');
+            }}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-black text-slate-800 hover:bg-slate-50"
+          >
+            <Sparkles size={16} />
+            拼句
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMenuPostId(null);
+              setSheet('more');
+            }}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-black text-slate-500 hover:bg-slate-50"
+          >
+            <MoreHorizontal size={16} />
+            更多
           </button>
         </div>
-      </Card>
+      </div>
 
-      <Card title="匿名留言" action="可举报">
-        <div className="space-y-3">
-          {posts.map((post) => (
-            <div key={post.id} className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between text-xs text-slate-400">
-                <span>{post.authorAlias}</span>
-                <span>{post.createdAt}</span>
+      <AnimatePresence>
+        {sheet && (
+          <>
+            <motion.div
+              key="square-sheet-bg"
+              initial={{opacity: 0}}
+              animate={{opacity: 1}}
+              exit={{opacity: 0}}
+              className="fixed inset-0 z-40 bg-slate-950/35 backdrop-blur-[2px]"
+              onClick={closeSheet}
+            />
+            <motion.div
+              key="square-sheet-panel"
+              initial={{y: '105%'}}
+              animate={{y: 0}}
+              exit={{y: '105%'}}
+              transition={{type: 'spring', damping: 30, stiffness: 320}}
+              className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[88dvh] w-full max-w-[430px] flex-col rounded-t-[1.5rem] bg-white shadow-[0_-8px_40px_rgba(15,23,42,0.12)]"
+            >
+              <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-slate-200" />
+              <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] pt-4">
+                {sheet === 'write' && (
+                  <div className="space-y-3">
+                    <h2 className="text-lg font-black text-slate-900">写一句</h2>
+                    <p className="text-xs font-semibold text-slate-500">系统键盘可输入 emoji。轻量发言，最多 {maxChars} 字。</p>
+                    <textarea
+                      value={draft}
+                      onChange={(e) => setDraft(Array.from(e.target.value).slice(0, maxChars).join(''))}
+                      rows={5}
+                      placeholder="今天想留一句…"
+                      className="w-full resize-none rounded-2xl border border-slate-200 bg-slate-50/80 px-4 py-3 text-[15px] font-semibold leading-relaxed text-slate-800 placeholder:text-slate-400 focus:border-rose-300 focus:outline-none focus:ring-2 focus:ring-rose-100"
+                    />
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-400">
+                      <span>
+                        {draftRunes}/{maxChars}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={submitWrite}
+                        disabled={!draft.trim()}
+                        className="rounded-full bg-rose-500 px-5 py-2 text-xs font-black text-white disabled:opacity-40"
+                      >
+                        发布
+                      </button>
+                    </div>
+                  </div>
+                )}
+                {sheet === 'compose' && (
+                  <div className="space-y-2">
+                    <h2 className="text-lg font-black text-slate-900">预设拼句</h2>
+                    <PhraseComposer
+                      variant="plain"
+                      onPublish={(phrase) => {
+                        onPublish(phrase);
+                        closeSheet();
+                      }}
+                    />
+                  </div>
+                )}
+                {sheet === 'more' && (
+                  <div className="space-y-4 pb-2">
+                    <h2 className="text-lg font-black text-slate-900">更多</h2>
+                    <p className="text-xs font-semibold leading-relaxed text-slate-500">
+                      广场只做轻展示：共鸣在卡片上点心形；举报与屏蔽在每条右上角菜单。留言 {posts.length} 条，累计共鸣 {totalResonance}。
+                    </p>
+                    <div className="rounded-2xl border border-slate-100 bg-slate-50/80 p-4">
+                      {match ? (
+                        <>
+                          <p className="text-xs font-bold text-slate-400">摇一摇 · {match.alias}</p>
+                          <p className="mt-2 text-sm font-semibold leading-relaxed text-slate-800">{match.phrase}</p>
+                        </>
+                      ) : (
+                        <p className="text-sm text-slate-500">暂无匹配。</p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={shakeMatch}
+                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white py-3 text-xs font-black text-slate-800"
+                      >
+                        <RefreshCw size={16} />
+                        摇一下
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <p className="mt-3 text-sm font-bold leading-6 text-slate-800">{post.phrase}</p>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-                <div className="h-full rounded-full bg-gradient-to-r from-rose-400 to-pink-500" style={{width: `${Math.min(100, Math.max(12, post.resonanceCount / 2))}%`}} />
-              </div>
-              <div className="mt-3 flex gap-2">
+              <div className="shrink-0 border-t border-slate-100 px-5 py-3">
                 <button
-                  onClick={() => onResonate(post.id)}
-                  className="rounded-full bg-rose-50 px-3 py-1.5 text-xs font-black text-rose-500"
+                  type="button"
+                  onClick={closeSheet}
+                  className="w-full rounded-xl py-2.5 text-sm font-black text-slate-500 hover:bg-slate-50"
                 >
-                  共鸣 {post.resonanceCount}
-                </button>
-                <button
-                  onClick={() => onReport(post.id)}
-                  className={`rounded-full px-3 py-1.5 text-xs font-black ${post.reported ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}
-                >
-                  {post.reported ? '已举报' : '举报'}
-                </button>
-                <button
-                  onClick={() => onBlock(post.id)}
-                  className="rounded-full bg-slate-950 px-3 py-1.5 text-xs font-black text-white"
-                >
-                  屏蔽
+                  关闭
                 </button>
               </div>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </section>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
 
 function ProfileView({
   profile,
   records,
+  onSaveUsername,
+  onSaveSquareAlias,
   onRoleChange,
   onPrivacyLockChange,
   onExportData,
   onDeleteAccount,
+  onLogout,
 }: {
   profile: UserProfile;
   records: IntimacyRecord[];
+  onSaveUsername: (nickname: string) => void;
+  onSaveSquareAlias: (squareAlias: string) => void;
   onRoleChange: (role: UserRole) => void;
   onPrivacyLockChange: (privacyLock: boolean) => void;
   onExportData: () => void;
   onDeleteAccount: () => void;
+  onLogout: () => void;
 }) {
+  const [usernameDraft, setUsernameDraft] = useState(profile.nickname);
+  const [squareDraft, setSquareDraft] = useState(profile.squareAlias ?? '');
+  useEffect(() => {
+    setUsernameDraft(profile.nickname);
+  }, [profile.nickname]);
+  useEffect(() => {
+    setSquareDraft(profile.squareAlias ?? '');
+  }, [profile.squareAlias]);
+
+  const displayName = profile.nickname?.trim() || '未设置用户名';
+
   return (
     <section className="space-y-5 p-5 pt-8">
       <PageTitle title="我的" subtitle="成年人的体面，是知道什么时候该认真。" />
-      <Card title={profile.nickname} action="成年确认已完成">
+      <Card title={displayName} action="成年确认已完成">
         <div className="flex items-center gap-4">
           <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-gradient-to-tr from-rose-400 to-pink-500 text-xl font-black text-white shadow-lg">
             法
           </div>
           <div className="flex-1">
             <p className="font-black text-slate-900">{roleLabels[profile.role]}</p>
+            {profile.email && <p className="mt-1 text-xs font-semibold text-slate-500">{profile.email}</p>}
             <p className="mt-1 text-sm text-slate-500">累计 {records.length} 条私密记录</p>
           </div>
           <ChevronRight className="text-slate-300" />
+        </div>
+      </Card>
+
+      <Card title="称呼与身份" action="广场与伴侣分开">
+        <div className="space-y-4">
+          <div>
+            <p className="text-xs font-black text-slate-500">用户名（仅自己与伴侣可见）</p>
+            <input
+              value={usernameDraft}
+              onChange={(e) => setUsernameDraft(Array.from(e.target.value).slice(0, 32).join(''))}
+              placeholder="例如：家里用的名字"
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-rose-300"
+            />
+            <button
+              type="button"
+              onClick={() => onSaveUsername(usernameDraft)}
+              className="mt-2 w-full rounded-2xl bg-slate-950 py-3 text-sm font-black text-white"
+            >
+              保存用户名
+            </button>
+          </div>
+          <div className="border-t border-slate-100 pt-4">
+            <p className="text-xs font-black text-slate-500">匿名广场身份（对外展示，可与用户名不同）</p>
+            <input
+              value={squareDraft}
+              onChange={(e) => setSquareDraft(Array.from(e.target.value).slice(0, 24).join(''))}
+              placeholder="例如：匿名嘴硬人"
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold outline-none focus:border-rose-300"
+            />
+            <p className="mt-1 text-[11px] font-semibold text-slate-400">留空则服务端会生成默认匿名前缀。最多 24 字。</p>
+            <button
+              type="button"
+              onClick={() => onSaveSquareAlias(squareDraft)}
+              className="mt-2 w-full rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-800"
+            >
+              保存广场身份
+            </button>
+          </div>
         </div>
       </Card>
 
@@ -1080,6 +1509,9 @@ function ProfileView({
             <button onClick={onExportData} className="rounded-2xl bg-slate-950 py-3 text-sm font-black text-white">导出数据</button>
             <button onClick={onDeleteAccount} className="rounded-2xl bg-rose-50 py-3 text-sm font-black text-rose-600">删除账号</button>
           </div>
+          <button type="button" onClick={onLogout} className="mt-3 w-full rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-600">
+            退出登录
+          </button>
         </div>
       </Card>
 
@@ -1207,36 +1639,121 @@ function RecordSheet({
   );
 }
 
-function PhraseComposer({onPublish}: {onPublish: (phrase: string) => void}) {
+function PhraseComposer({
+  onPublish,
+  variant = 'card',
+}: {
+  onPublish: (phrase: string) => void;
+  variant?: 'card' | 'plain';
+}) {
   const [parts, setParts] = useState<Record<PhraseSlot, string>>(() => randomPhraseParts());
+  const [shufflePop, setShufflePop] = useState(0);
   const phrase = `${parts.tone} / ${parts.subject} / ${parts.action} / ${parts.ending}`;
 
-  return (
-    <Card title="预设拼句" action="模板槽位">
-      <div className="space-y-4">
-        <div className="rounded-3xl bg-slate-950 p-4 text-sm font-bold leading-6 text-white">{phrase}</div>
-        <p className="text-xs font-bold leading-5 text-slate-400">
-          用固定模板和分类词库拼一句话，不开放自由输入。简单句负责提醒，复杂句负责嘴硬。
-        </p>
-        <PhraseSelect label="语气" value={parts.tone} values={phraseBook.tones} onChange={(tone) => setParts((prev) => ({...prev, tone}))} />
-        <PhraseSelect label="主语" value={parts.subject} values={phraseBook.subjects} onChange={(subject) => setParts((prev) => ({...prev, subject}))} />
-        <PhraseSelect label="动作" value={parts.action} values={phraseBook.actions} onChange={(action) => setParts((prev) => ({...prev, action}))} />
-        <PhraseSelect label="收尾" value={parts.ending} values={phraseBook.endings} onChange={(ending) => setParts((prev) => ({...prev, ending}))} />
-        <button
-          onClick={() => setParts(randomPhraseParts())}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white py-3 text-sm font-black text-slate-700"
-        >
-          <RefreshCw size={16} />
-          随机重组一句
-        </button>
-        <button
-          onClick={() => onPublish(phrase)}
-          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-rose-500 py-3 text-sm font-black text-white"
-        >
-          <Plus size={16} />
-          发布到匿名广场
-        </button>
+  const mixer = (
+    <div className="relative space-y-5 overflow-hidden rounded-[1.75rem] border border-white/60 bg-gradient-to-br from-[#fff7fb] via-[#f5f0ff] to-[#ecfeff] p-4 shadow-inner ring-1 ring-rose-100/60">
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute -left-6 -top-8 text-4xl opacity-[0.18]"
+        animate={{y: [0, -5, 0], rotate: [-6, 6, -6]}}
+        transition={{duration: 5, repeat: Infinity, ease: 'easeInOut'}}
+      >
+        🫧
+      </motion.div>
+      <motion.div
+        aria-hidden
+        className="pointer-events-none absolute -bottom-4 right-2 text-3xl opacity-20"
+        animate={{y: [0, 6, 0], x: [0, 4, 0]}}
+        transition={{duration: 4.2, repeat: Infinity, ease: 'easeInOut'}}
+      >
+        ✿
+      </motion.div>
+
+      <div className="relative mx-auto max-w-full">
+        <div className="rounded-[1.35rem] bg-gradient-to-r from-rose-200/80 via-violet-200/70 to-amber-200/70 p-[1.5px] shadow-md shadow-rose-200/40">
+          <div className="relative overflow-hidden rounded-[1.28rem] bg-white/88 px-4 py-4 backdrop-blur-md">
+            <motion.p
+              key={phrase}
+              initial={{opacity: 0.75, y: 8, scale: 0.985}}
+              animate={{opacity: 1, y: 0, scale: 1}}
+              transition={{type: 'spring', stiffness: 420, damping: 26}}
+              className="text-center text-sm font-bold leading-relaxed text-slate-800"
+            >
+              {phrase}
+            </motion.p>
+            <motion.p
+              className="mt-2 text-center text-[10px] font-black uppercase tracking-[0.35em] text-rose-400/90"
+              animate={{opacity: [0.65, 1, 0.65]}}
+              transition={{duration: 2.4, repeat: Infinity}}
+            >
+              实时预览
+            </motion.p>
+          </div>
+        </div>
       </div>
+
+      <p className="relative text-center text-[11px] font-semibold leading-relaxed text-slate-500">
+        {variant === 'plain'
+          ? '点点下面的小糖豆拼一句，懒得打字正好～'
+          : '像搭乐高一样拼句子：点一下，句子会轻轻蹦一下。'}
+      </p>
+
+      <div className="relative space-y-4">
+        <PhraseSelect slot="tone" label="语气" value={parts.tone} values={phraseBook.tones} onChange={(tone) => setParts((prev) => ({...prev, tone}))} />
+        <PhraseSelect slot="subject" label="主语" value={parts.subject} values={phraseBook.subjects} onChange={(subject) => setParts((prev) => ({...prev, subject}))} />
+        <PhraseSelect slot="action" label="动作" value={parts.action} values={phraseBook.actions} onChange={(action) => setParts((prev) => ({...prev, action}))} />
+        <PhraseSelect slot="ending" label="收尾" value={parts.ending} values={phraseBook.endings} onChange={(ending) => setParts((prev) => ({...prev, ending}))} />
+      </div>
+
+      <div className="relative flex flex-col gap-2.5">
+        <motion.button
+          type="button"
+          onClick={() => {
+            setParts(randomPhraseParts());
+            setShufflePop((n) => n + 1);
+          }}
+          whileHover={{scale: 1.02}}
+          whileTap={{scale: 0.97}}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl border border-violet-200/80 bg-white/90 py-3.5 text-sm font-black text-violet-800 shadow-sm backdrop-blur-sm"
+        >
+          <motion.span
+            key={shufflePop}
+            initial={{rotate: -50, scale: 0.7}}
+            animate={{rotate: 0, scale: 1}}
+            transition={{type: 'spring', stiffness: 460, damping: 12}}
+            className="inline-flex text-violet-600"
+          >
+            <RefreshCw size={17} />
+          </motion.span>
+          随机重组一句
+        </motion.button>
+        <motion.button
+          type="button"
+          onClick={() => onPublish(phrase)}
+          whileHover={{scale: 1.02}}
+          whileTap={{scale: 0.97}}
+          className="flex w-full items-center justify-center gap-2 rounded-2xl bg-gradient-to-r from-rose-500 via-pink-500 to-fuchsia-500 py-3.5 text-sm font-black text-white shadow-lg shadow-rose-300/50"
+        >
+          <motion.span
+            animate={{rotate: [0, 14, -10, 0]}}
+            transition={{duration: 2.2, repeat: Infinity, ease: 'easeInOut'}}
+            className="inline-flex"
+          >
+            <Sparkles size={17} />
+          </motion.span>
+          {variant === 'plain' ? '发布这句' : '发布到匿名广场'}
+        </motion.button>
+      </div>
+    </div>
+  );
+
+  if (variant === 'plain') {
+    return mixer;
+  }
+
+  return (
+    <Card title="预设拼句" action="模板糖豆">
+      {mixer}
     </Card>
   );
 }
@@ -1334,7 +1851,7 @@ function TabItem({icon, label, active, onClick}: {icon: React.ReactNode; label: 
 
 function Card({title, action, children}: {title: string; action?: string; children: React.ReactNode}) {
   return (
-    <section className="rounded-[1.75rem] border border-slate-100 bg-white p-5 shadow-sm">
+    <section className="rounded-[1.75rem] border border-white/60 bg-white/75 p-5 shadow-sm shadow-rose-100/30 backdrop-blur-xl">
       <div className="mb-4 flex items-center justify-between gap-4">
         <h2 className="font-black text-slate-950">{title}</h2>
         {action && <span className="text-xs font-bold text-slate-400">{action}</span>}
@@ -1543,23 +2060,73 @@ function OptionGroup<T extends string>({
   );
 }
 
-function PhraseSelect({label, value, values, onChange}: {label: string; value: string; values: string[]; onChange: (value: string) => void}) {
+const phraseSlotStagger: Record<PhraseSlot, number> = {
+  tone: 0,
+  subject: 0.06,
+  action: 0.11,
+  ending: 0.16,
+};
+
+function PhraseSelect({
+  slot,
+  label,
+  value,
+  values,
+  onChange,
+}: {
+  slot: PhraseSlot;
+  label: string;
+  value: string;
+  values: string[];
+  onChange: (value: string) => void;
+}) {
   const options = values ?? [];
+  const meta = phraseSlotUI[slot];
+  const delay = phraseSlotStagger[slot] ?? 0;
+
   return (
-    <label className="block">
-      <span className="mb-2 block text-xs font-black text-slate-400">{label}</span>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none focus:border-rose-300"
-      >
-        {options.map((item) => (
-          <option key={item} value={item}>
-            {item}
-          </option>
-        ))}
-      </select>
-    </label>
+    <motion.div
+      className="relative block rounded-2xl border border-white/70 bg-white/50 p-3 shadow-sm backdrop-blur-sm"
+      initial={{opacity: 0, y: 14}}
+      animate={{opacity: 1, y: 0}}
+      transition={{type: 'spring', stiffness: 300, damping: 26, delay}}
+    >
+      <div className="mb-2.5 flex items-start gap-2">
+        <motion.span
+          className="select-none text-xl leading-none"
+          aria-hidden
+          animate={{y: [0, -3, 0]}}
+          transition={{duration: 2.2 + delay, repeat: Infinity, ease: 'easeInOut'}}
+        >
+          {meta.emoji}
+        </motion.span>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">{label}</p>
+          <p className="text-[11px] font-semibold text-slate-500">{meta.blurb}</p>
+        </div>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {options.map((item) => {
+          const selected = item === value;
+          return (
+            <motion.button
+              key={item}
+              type="button"
+              layout
+              whileHover={{y: -2, scale: 1.04}}
+              whileTap={{scale: 0.93}}
+              transition={{type: 'spring', stiffness: 400, damping: 22}}
+              onClick={() => onChange(item)}
+              className={`max-w-full rounded-2xl border px-3 py-2 text-left text-[11px] font-bold leading-snug transition-colors sm:text-xs ${
+                selected ? `${meta.active} ${meta.glow}` : meta.idle
+              }`}
+            >
+              {item}
+            </motion.button>
+          );
+        })}
+      </div>
+    </motion.div>
   );
 }
 

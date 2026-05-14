@@ -2,23 +2,29 @@ package app
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type Server struct {
-	cfg   Config
-	store *MemoryStore
+	cfg      Config
+	store    *MemoryStore
+	captchas *captchaStore
 }
 
 func NewServer(cfg Config, store *MemoryStore) *Server {
-	return &Server{cfg: cfg, store: store}
+	return &Server{cfg: cfg, store: store, captchas: newCaptchaStore()}
 }
 
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", s.handleHealth)
+	mux.HandleFunc("GET /api/v1/auth/captcha", s.handleCaptcha)
+	mux.HandleFunc("POST /api/v1/auth/register", s.handleRegister)
 	mux.HandleFunc("POST /api/v1/auth/login", s.handleLogin)
 	mux.HandleFunc("GET /api/v1/me", s.withAuth(s.handleMe))
 	mux.HandleFunc("PUT /api/v1/me", s.withAuth(s.handleUpdateMe))
@@ -71,9 +77,60 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "service": "faleme-api"})
 }
 
-func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
-	var req AuthRequest
+func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
+	var req RegisterRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	email := strings.TrimSpace(strings.ToLower(req.Email))
+	if !strings.Contains(email, "@") || len(email) < 5 {
+		writeError(w, http.StatusBadRequest, "invalid email")
+		return
+	}
+	req.Email = email
+	if !s.captchas.verify(req.CaptchaID, req.Captcha) {
+		writeError(w, http.StatusBadRequest, errInvalidCaptcha.Error())
+		return
+	}
+	if s.cfg.RequireAdultAck && !req.AdultConfirmed {
+		writeError(w, http.StatusForbidden, "adult confirmation required")
+		return
+	}
+	token, user, err := s.store.RegisterWithEmail(req.Email, req.Password, req.Nickname, req.SquareAlias, req.Role, req.AdultConfirmed)
+	if err != nil {
+		writeError(w, storeErrStatus(err), err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, AuthResponse{Token: token, User: user})
+}
+
+func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	raw, err := io.ReadAll(r.Body)
+	if err != nil || len(raw) == 0 {
+		writeError(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	var probe struct {
+		Email string `json:"email"`
+	}
+	_ = json.Unmarshal(raw, &probe)
+	if strings.TrimSpace(probe.Email) != "" {
+		var req EmailLoginRequest
+		if err := json.Unmarshal(raw, &req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid json")
+			return
+		}
+		token, user, err := s.store.LoginWithEmail(req.Email, req.Password)
+		if err != nil {
+			writeError(w, http.StatusUnauthorized, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, AuthResponse{Token: token, User: user})
+		return
+	}
+	var req AuthRequest
+	if err := json.Unmarshal(raw, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid json")
 		return
 	}
@@ -83,6 +140,17 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	token, user := s.store.CreateUser(req)
 	writeJSON(w, http.StatusOK, AuthResponse{Token: token, User: user})
+}
+
+func storeErrStatus(err error) int {
+	switch {
+	case errors.Is(err, errEmailTaken):
+		return http.StatusConflict
+	case errors.Is(err, errWeakPassword):
+		return http.StatusBadRequest
+	default:
+		return http.StatusBadRequest
+	}
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {
@@ -195,16 +263,17 @@ func (s *Server) handleReminderSummary(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetPartner(w http.ResponseWriter, r *http.Request) {
-	link, err := s.store.Partner(currentUser(r).ID)
-	if err != nil {
-		writeJSON(w, http.StatusOK, PartnerLink{Status: "none"})
-		return
-	}
+	link, _ := s.store.Partner(currentUser(r).ID)
 	writeJSON(w, http.StatusOK, link)
 }
 
 func (s *Server) handleCreatePartnerInvite(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusCreated, s.store.CreateInvite(currentUser(r).ID))
+	link, err := s.store.CreateInvite(currentUser(r).ID)
+	if err != nil {
+		writeError(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, link)
 }
 
 func (s *Server) handleAcceptPartnerInvite(w http.ResponseWriter, r *http.Request) {
@@ -215,7 +284,12 @@ func (s *Server) handleAcceptPartnerInvite(w http.ResponseWriter, r *http.Reques
 		writeError(w, http.StatusBadRequest, "inviteCode required")
 		return
 	}
-	writeJSON(w, http.StatusOK, s.store.AcceptInvite(currentUser(r).ID, req.InviteCode))
+	link, err := s.store.AcceptInvite(currentUser(r).ID, req.InviteCode)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, link)
 }
 
 func (s *Server) handleUnlinkPartner(w http.ResponseWriter, r *http.Request) {
@@ -268,7 +342,12 @@ func (s *Server) handleCreatePost(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "phrase required")
 		return
 	}
-	writeJSON(w, http.StatusCreated, s.store.AddPost(currentUser(r).ID, req.Phrase))
+	phrase := strings.TrimSpace(req.Phrase)
+	if utf8.RuneCountInString(phrase) > 320 {
+		writeError(w, http.StatusBadRequest, "phrase too long")
+		return
+	}
+	writeJSON(w, http.StatusCreated, s.store.AddPost(currentUser(r).ID, phrase))
 }
 
 func (s *Server) handleResonatePost(w http.ResponseWriter, r *http.Request) {

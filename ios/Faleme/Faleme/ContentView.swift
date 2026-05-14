@@ -1122,6 +1122,9 @@ private struct PartnerView: View {
                 Card(title: "伴侣留言箱") {
                     ForEach(store.partnerMessages) { message in
                         VStack(alignment: .leading, spacing: 6) {
+                            Text(partnerDisplayName(message.authorNickname))
+                                .font(.caption.bold())
+                                .foregroundStyle(.primary)
                             Text(message.createdAt)
                                 .font(.caption.bold())
                                 .foregroundStyle(.secondary)
@@ -1142,6 +1145,11 @@ private struct PartnerView: View {
             await store.load()
         }
         .falemeScreenChrome()
+    }
+
+    private func partnerDisplayName(_ raw: String?) -> String {
+        let n = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return n.isEmpty ? "未设置" : n
     }
 
     private func stepPill(_ title: String) -> some View {
@@ -1343,6 +1351,7 @@ private struct ProfileView: View {
     @AppStorage("faleme.haptics.enabled") private var hapticsEnabled = true
     @AppStorage("faleme.comfort.banner") private var comfortBannerEnabled = true
     @State private var nicknameDraft = ""
+    @State private var squareAliasDraft = ""
 
     var body: some View {
         ScrollView {
@@ -1375,11 +1384,11 @@ private struct ProfileView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
-                Card(title: "昵称") {
-                    TextField("怎么称呼你", text: $nicknameDraft)
+                Card(title: "用户名（仅自己与伴侣可见）") {
+                    TextField("伴侣留言、个人页里显示的名字", text: $nicknameDraft)
                         .textFieldStyle(.roundedBorder)
                         .textInputAutocapitalization(.words)
-                    Button("保存昵称") {
+                    Button("保存用户名") {
                         Task {
                             await store.saveNickname(nicknameDraft)
                             FalemeHaptics.success()
@@ -1387,7 +1396,22 @@ private struct ProfileView: View {
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.black)
-                    Text("与后端账号同步；离线演示模式下也会尽量记在本地文案里。")
+                    Text("与后端账号同步；不会用作匿名广场上的展示名。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Card(title: "匿名广场身份") {
+                    TextField("广场卡片上显示，可与用户名不同", text: $squareAliasDraft)
+                        .textFieldStyle(.roundedBorder)
+                        .textInputAutocapitalization(.never)
+                    Button("保存广场身份") {
+                        Task {
+                            await store.saveSquareAlias(squareAliasDraft)
+                            FalemeHaptics.success()
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    Text("留空并保存时，服务端会生成默认匿名前缀。最多 24 字。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -1550,9 +1574,13 @@ private struct ProfileView: View {
         .falemeScreenChrome()
         .onAppear {
             nicknameDraft = store.profileNickname
+            squareAliasDraft = store.profileSquareAlias
         }
         .onChange(of: store.profileNickname) { _, val in
             nicknameDraft = val
+        }
+        .onChange(of: store.profileSquareAlias) { _, val in
+            squareAliasDraft = val
         }
         .sheet(item: $store.shareExportItem, onDismiss: {
             store.clearShareExport()

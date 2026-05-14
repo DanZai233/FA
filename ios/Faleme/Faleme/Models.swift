@@ -63,7 +63,11 @@ enum IntimacyType: String, Codable, CaseIterable {
 struct UserProfile: Codable, Identifiable {
     let id: String
     var deviceId: String?
+    var email: String?
+    /// 用户名：仅自己与伴侣可见（API 字段名仍为 nickname）
     var nickname: String
+    /// 匿名广场展示身份
+    var squareAlias: String?
     var role: UserRole
     var adultConfirmed: Bool
     var privacyLock: Bool?
@@ -115,6 +119,8 @@ struct ReminderSummary: Codable {
 struct PartnerMessage: Codable, Identifiable {
     var id: String
     var userId: String
+    /// 发送时的用户名（nickname），伴侣可见
+    var authorNickname: String?
     var phrase: String
     var scene: String
     var createdAt: String

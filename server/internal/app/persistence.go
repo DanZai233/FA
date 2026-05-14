@@ -14,15 +14,17 @@ import (
 const stateKey = "v1"
 
 type persistentState struct {
-	Users    map[string]User             `json:"users"`
-	Tokens   map[string]string           `json:"tokens"`
-	Devices  map[string]string           `json:"devices"`
-	Partners map[string]PartnerLink      `json:"partners"`
-	Messages map[string][]PartnerMessage `json:"messages"`
-	Records  map[string][]IntimacyRecord `json:"records"`
-	Cycles   map[string][]CycleRecord    `json:"cycles"`
-	Posts    []SocialPost                `json:"posts"`
-	Reports  []Report                    `json:"reports"`
+	Users      map[string]User             `json:"users"`
+	Tokens     map[string]string           `json:"tokens"`
+	Devices    map[string]string           `json:"devices"`
+	EmailIndex map[string]string           `json:"emailIndex,omitempty"`
+	Passwords  map[string]string           `json:"passwords,omitempty"`
+	Partners   map[string]PartnerLink      `json:"partners"`
+	Messages   map[string][]PartnerMessage `json:"messages"`
+	Records    map[string][]IntimacyRecord `json:"records"`
+	Cycles     map[string][]CycleRecord    `json:"cycles"`
+	Posts      []SocialPost                `json:"posts"`
+	Reports    []Report                    `json:"reports"`
 }
 
 type PostgresPersistence struct {

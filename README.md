@@ -54,6 +54,8 @@ docker compose down
 - `api`：Go 后端服务，使用 `DATABASE_URL` 连接 Postgres，并把 V1 应用状态持久化到 `app_state` 表。
 - `db`：PostgreSQL，启动时加载 `server/migrations`，数据保存在 Docker named volume `faleme-postgres`。
 
+构建 API 镜像时若出现 `proxy.golang.org` 超时，`server/Dockerfile` 已默认设置 `GOPROXY`（`goproxy.cn` → `goproxy.io` → `direct`）；在境外网络可自行覆盖：`docker compose build --build-arg GOPROXY=https://proxy.golang.org,direct api`。
+
 数据默认会持久化，重启容器不会丢：
 
 ```bash

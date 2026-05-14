@@ -524,10 +524,13 @@ function HomeView({
       <div className={`relative overflow-hidden rounded-[2.4rem] bg-gradient-to-br ${theme.heroBg} p-6 text-white shadow-[0_30px_80px_-30px_rgba(244,63,94,0.85)]`}>
         <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-white/20 blur-2xl" />
         <div className="absolute -bottom-20 left-10 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
-        <header className="relative">
-          <p className="text-xs font-black uppercase tracking-[0.28em] text-white/55">adult wellness</p>
-          <h1 className="mt-3 text-5xl font-black tracking-tight">{brand.name}</h1>
-          <p className="mt-3 max-w-[17rem] text-sm font-semibold leading-6 text-white/78">{brand.slogan}</p>
+        <header className="relative flex gap-4">
+          <img src="/logo.png" alt={brand.name} width={72} height={72} className="h-[4.5rem] w-[4.5rem] shrink-0 rounded-2xl bg-white/20 object-cover shadow-lg ring-1 ring-white/30" />
+          <div className="min-w-0">
+            <p className="text-xs font-black uppercase tracking-[0.28em] text-white/55">adult wellness</p>
+            <h1 className="mt-3 text-5xl font-black tracking-tight">{brand.name}</h1>
+            <p className="mt-3 max-w-[17rem] text-sm font-semibold leading-6 text-white/78">{brand.slogan}</p>
+          </div>
         </header>
         <button
           onClick={onAddRecord}
@@ -1243,6 +1246,13 @@ function PublicPage({path}: {path: string}) {
   return (
     <main className="min-h-screen bg-[#F2F2F7] px-5 py-10 text-slate-900">
       <div className="mx-auto max-w-3xl space-y-6">
+        <div className="flex flex-wrap items-center gap-4">
+          <img src="/logo.png" alt={brand.name} width={64} height={64} className="h-16 w-16 shrink-0 rounded-2xl bg-white object-cover shadow-sm ring-1 ring-slate-100" />
+          <div className="min-w-0">
+            <p className="text-lg font-black text-slate-900">{brand.name}</p>
+            <p className="mt-1 text-sm font-semibold text-slate-500">{brand.slogan}</p>
+          </div>
+        </div>
         <a href="/app" className="inline-flex items-center gap-2 rounded-full bg-white px-4 py-2 text-sm font-black text-rose-500 shadow-sm">
           <Sparkles size={16} />
           打开 {brand.name}

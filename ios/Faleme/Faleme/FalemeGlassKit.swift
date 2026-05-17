@@ -120,6 +120,12 @@ enum FalemeHaptics {
     }
 
     @inline(__always)
+    static func error() {
+        guard UserDefaults.standard.object(forKey: "faleme.haptics.enabled") as? Bool ?? true else { return }
+        UINotificationFeedbackGenerator().notificationOccurred(.error)
+    }
+
+    @inline(__always)
     static func rigid() {
         guard UserDefaults.standard.object(forKey: "faleme.haptics.enabled") as? Bool ?? true else { return }
         UIImpactFeedbackGenerator(style: .rigid).impactOccurred()

@@ -2055,265 +2055,20 @@ private struct ProfileView: View {
     @State private var squareAliasDraft = ""
     @State private var showPolyRelationshipSheet = false
 
+    private var seriousModeBinding: Binding<Bool> {
+        Binding(
+            get: { seriousModeRaw == "1" },
+            set: { seriousModeRaw = $0 ? "1" : "" }
+        )
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 16) {
-                PageHeader(title: "我的", subtitle: "成年人的体面，是知道什么时候该认真。")
-                if store.isOfflineDemo {
-                    Text("当前与云端未同步，正在使用本机或演示数据。下拉页面可刷新。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(12)
-                        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: FalemeShape.cardMinor, style: .continuous))
-                }
-                Card(title: "外观") {
-                    Picker("界面模式", selection: $appearanceRaw) {
-                        ForEach(FalemeAppearance.allCases) { mode in
-                            Text(mode.displayName).tag(mode.rawValue)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    Text(FalemeAppearance(rawValue: appearanceRaw)?.subtitle ?? "")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Card(title: "体验与关怀") {
-                    Toggle("操作成功时轻触感", isOn: $hapticsEnabled)
-                    Toggle("首页显示时段问候", isOn: $comfortBannerEnabled)
-                    Toggle("严肃模式（更少玩笑文案）", isOn: Binding(
-                        get: { seriousModeRaw == "1" },
-                        set: { seriousModeRaw = $0 ? "1" : "" }
-                    ))
-                    Text("问候语只本地展示；严肃模式与 Web 共用键 faleme.seriousMode。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Card(title: "用户名（仅自己与伴侣可见）") {
-                    TextField("伴侣留言、个人页里显示的名字", text: $nicknameDraft)
-                        .textFieldStyle(.roundedBorder)
-                        .textInputAutocapitalization(.words)
-                    Button("保存用户名") {
-                        Task {
-                            await store.saveNickname(nicknameDraft)
-                            FalemeHaptics.success()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.black)
-                    Text("与后端账号同步；不会用作匿名广场上的展示名。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Card(title: "匿名广场身份") {
-                    TextField("广场卡片上显示，可与用户名不同", text: $squareAliasDraft)
-                        .textFieldStyle(.roundedBorder)
-                        .textInputAutocapitalization(.never)
-                    Button("保存广场身份") {
-                        Task {
-                            await store.saveSquareAlias(squareAliasDraft)
-                            FalemeHaptics.success()
-                        }
-                    }
-                    .buttonStyle(.bordered)
-                    Text("留空并保存时，服务端会生成默认匿名前缀。最多 24 字。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Card(title: "角色偏好") {
-                    Text("这里决定首页大按钮显示“法了！”还是“被法了！”。想换身份，来设置里换，首页负责少想多记。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 8) {
-                        Button("我是“法”的一方") {
-                            store.setRole(.initiator)
-                        }
-                        .font(.caption.bold())
-                        .foregroundStyle(store.role == .initiator ? .white : .primary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.82)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial)
-                                if store.role == .initiator {
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.rose)
-                                }
-                            }
-                        }
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .strokeBorder(Color.white.opacity(store.role == .initiator ? 0.35 : 0.2), lineWidth: 1)
-                        )
-
-                        Button("我是“被法”的一方") {
-                            store.setRole(.receiver)
-                        }
-                        .font(.caption.bold())
-                        .foregroundStyle(store.role == .receiver ? .white : .primary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
-                        .minimumScaleFactor(0.82)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
-                        .background {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial)
-                                if store.role == .receiver {
-                                    RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.violet)
-                                }
-                            }
-                        }
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .strokeBorder(Color.white.opacity(store.role == .receiver ? 0.35 : 0.2), lineWidth: 1)
-                        )
-                    }
-                    Button("看气氛发挥（双向）") {
-                        store.setRole(.switch)
-                    }
-                    .font(.caption.bold())
-                    .foregroundStyle(store.role == .switch ? .white : .primary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial)
-                            if store.role == .switch {
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [Color.black.opacity(0.92), Color(red: 0.22, green: 0.12, blue: 0.2)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                            }
-                        }
-                    }
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(Color.white.opacity(store.role == .switch ? 0.3 : 0.2), lineWidth: 1)
-                    )
-                }
-                Card(title: "关系模式") {
-                    Text(store.effectiveRelationshipMode() == "poly" ? "当前：逆天价值观 · 众乐乐" : "当前：道德标杆 · 独乐乐")
-                        .font(.subheadline.bold())
-                    Text(store.effectiveRelationshipMode() == "poly"
-                        ? "可同时绑定多位搭子；记录与留言需选择对象。"
-                        : "默认一对一；切换众乐乐需在弹窗中阅读说明并输入宣誓口令。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if store.isOfflineDemo {
-                        Text("与云端同步后可切换模式。")
-                            .font(.caption2)
-                            .foregroundStyle(.orange)
-                    }
-                    if store.effectiveRelationshipMode() == "poly" {
-                        Button("切回独乐乐") {
-                            Task {
-                                do {
-                                    try await store.disablePolyMode()
-                                    FalemeHaptics.success()
-                                } catch {
-                                    FalemeHaptics.error()
-                                }
-                            }
-                        }
-                        .buttonStyle(.bordered)
-                    } else {
-                        Button("切换到众乐乐…") {
-                            showPolyRelationshipSheet = true
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.black)
-                        .disabled(store.isOfflineDemo)
-                    }
-                }
-                .sheet(isPresented: $showPolyRelationshipSheet) {
-                    PolyRelationshipSheet()
-                        .environmentObject(store)
-                }
-
-                Card(title: "隐私锁") {
-                    Toggle(isOn: Binding(
-                        get: { store.privacyLockEnabled },
-                        set: { store.updatePrivacyLock($0) }
-                    )) {
-                        Text("打开隐私锁提示")
-                    }
-                    Text("不影响记录功能，只在产品与心理上多一层「认真模式」提示。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Card(title: "免登录设备身份") {
-                    Text(DeviceIdentity.current)
-                        .font(.caption.monospaced())
-                        .foregroundStyle(.secondary)
-                        .textSelection(.enabled)
-                    Text("iOS 不能读取真实 UDID，这里使用 identifierForVendor，取不到时用本地 UUID。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Card(title: "健康小抄") {
-                    ForEach(store.knowledgeCards, id: \.id) { card in
-                        VStack(alignment: .leading, spacing: 6) {
-                            Text(card.category)
-                                .font(.caption.bold())
-                                .foregroundStyle(Color.rose)
-                            Text(card.title)
-                                .font(.headline)
-                            Text(card.body)
-                                .font(.subheadline)
-                                .foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.vertical, 8)
-                    }
-                }
-                Card(title: "隐私与数据") {
-                    Text(store.privacyMessage)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Text("导出将弹出系统分享面板，可保存到「文件」App 或通过 AirDrop 发送。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    VStack(spacing: 10) {
-                        Button("导出数据") {
-                            Task { await store.exportData() }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .tint(.black)
-                        .frame(maxWidth: .infinity)
-
-                        Button("生成本地年度回顾（HTML）") {
-                            Task { await store.prepareYearReviewHTML() }
-                        }
-                        .buttonStyle(.bordered)
-                        .frame(maxWidth: .infinity)
-
-                        Button("删除账号") {
-                            Task { await store.deleteAccount() }
-                        }
-                        .buttonStyle(.bordered)
-                        .tint(Color.rose)
-                        .frame(maxWidth: .infinity)
-                    }
-                }
-                Card(title: "完全离线模式") {
-                    Text("只保留“法了！”和“被法了！”核心记录，不访问后端，不同步，不显示社交功能。")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                    Button("进入完全离线") {
-                        offlineMode = true
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.black)
-                }
+                profileHeaderAndGeneral
+                profileAccountFields
+                profileRoleAndRelationshipMode
+                profilePrivacyAndData
             }
             .frame(maxWidth: .infinity)
             .padding(.horizontal, 16)
@@ -2337,6 +2092,274 @@ private struct ProfileView: View {
             store.clearShareExport()
         }) { item in
             ActivityView(activityItems: [item.url])
+        }
+        .sheet(isPresented: $showPolyRelationshipSheet) {
+            PolyRelationshipSheet()
+                .environmentObject(store)
+        }
+    }
+
+    @ViewBuilder
+    private var profileHeaderAndGeneral: some View {
+        PageHeader(title: "我的", subtitle: "成年人的体面，是知道什么时候该认真。")
+        if store.isOfflineDemo {
+            Text("当前与云端未同步，正在使用本机或演示数据。下拉页面可刷新。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: FalemeShape.cardMinor, style: .continuous))
+        }
+        Card(title: "外观") {
+            Picker("界面模式", selection: $appearanceRaw) {
+                ForEach(FalemeAppearance.allCases) { mode in
+                    Text(mode.displayName).tag(mode.rawValue)
+                }
+            }
+            .pickerStyle(.segmented)
+            Text(FalemeAppearance(rawValue: appearanceRaw)?.subtitle ?? "")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        Card(title: "体验与关怀") {
+            Toggle("操作成功时轻触感", isOn: $hapticsEnabled)
+            Toggle("首页显示时段问候", isOn: $comfortBannerEnabled)
+            Toggle("严肃模式（更少玩笑文案）", isOn: seriousModeBinding)
+            Text("问候语只本地展示；严肃模式与 Web 共用键 faleme.seriousMode。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var profileAccountFields: some View {
+        Card(title: "用户名（仅自己与伴侣可见）") {
+            TextField("伴侣留言、个人页里显示的名字", text: $nicknameDraft)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.words)
+            Button("保存用户名") {
+                Task {
+                    await store.saveNickname(nicknameDraft)
+                    FalemeHaptics.success()
+                }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.black)
+            Text("与后端账号同步；不会用作匿名广场上的展示名。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Card(title: "匿名广场身份") {
+            TextField("广场卡片上显示，可与用户名不同", text: $squareAliasDraft)
+                .textFieldStyle(.roundedBorder)
+                .textInputAutocapitalization(.never)
+            Button("保存广场身份") {
+                Task {
+                    await store.saveSquareAlias(squareAliasDraft)
+                    FalemeHaptics.success()
+                }
+            }
+            .buttonStyle(.bordered)
+            Text("留空并保存时，服务端会生成默认匿名前缀。最多 24 字。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    @ViewBuilder
+    private var profileRoleAndRelationshipMode: some View {
+        Card(title: "角色偏好") {
+            Text("这里决定首页大按钮显示“法了！”还是“被法了！”。想换身份，来设置里换，首页负责少想多记。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Button("我是“法”的一方") {
+                    store.setRole(.initiator)
+                }
+                .font(.caption.bold())
+                .foregroundStyle(store.role == .initiator ? .white : .primary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial)
+                        if store.role == .initiator {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.rose)
+                        }
+                    }
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.white.opacity(store.role == .initiator ? 0.35 : 0.2), lineWidth: 1)
+                )
+
+                Button("我是“被法”的一方") {
+                    store.setRole(.receiver)
+                }
+                .font(.caption.bold())
+                .foregroundStyle(store.role == .receiver ? .white : .primary)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.82)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
+                .background {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial)
+                        if store.role == .receiver {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous).fill(Color.violet)
+                        }
+                    }
+                }
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .strokeBorder(Color.white.opacity(store.role == .receiver ? 0.35 : 0.2), lineWidth: 1)
+                )
+            }
+            Button("看气氛发挥（双向）") {
+                store.setRole(.switch)
+            }
+            .font(.caption.bold())
+            .foregroundStyle(store.role == .switch ? .white : .primary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous).fill(.thinMaterial)
+                    if store.role == .switch {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(
+                                LinearGradient(
+                                    colors: [Color.black.opacity(0.92), Color(red: 0.22, green: 0.12, blue: 0.2)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
+                    }
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Color.white.opacity(store.role == .switch ? 0.3 : 0.2), lineWidth: 1)
+            )
+        }
+        Card(title: "关系模式") {
+            Text(store.effectiveRelationshipMode() == "poly" ? "当前：逆天价值观 · 众乐乐" : "当前：道德标杆 · 独乐乐")
+                .font(.subheadline.bold())
+            Text(store.effectiveRelationshipMode() == "poly"
+                ? "可同时绑定多位搭子；记录与留言需选择对象。"
+                : "默认一对一；切换众乐乐需在弹窗中阅读说明并输入宣誓口令。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if store.isOfflineDemo {
+                Text("与云端同步后可切换模式。")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
+            if store.effectiveRelationshipMode() == "poly" {
+                Button("切回独乐乐") {
+                    Task {
+                        do {
+                            try await store.disablePolyMode()
+                            FalemeHaptics.success()
+                        } catch {
+                            FalemeHaptics.error()
+                        }
+                    }
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button("切换到众乐乐…") {
+                    showPolyRelationshipSheet = true
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.black)
+                .disabled(store.isOfflineDemo)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var profilePrivacyAndData: some View {
+        Card(title: "隐私锁") {
+            Toggle(isOn: Binding(
+                get: { store.privacyLockEnabled },
+                set: { store.updatePrivacyLock($0) }
+            )) {
+                Text("打开隐私锁提示")
+            }
+            Text("不影响记录功能，只在产品与心理上多一层「认真模式」提示。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Card(title: "免登录设备身份") {
+            Text(DeviceIdentity.current)
+                .font(.caption.monospaced())
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+            Text("iOS 不能读取真实 UDID，这里使用 identifierForVendor，取不到时用本地 UUID。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Card(title: "健康小抄") {
+            ForEach(store.knowledgeCards, id: \.id) { card in
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(card.category)
+                        .font(.caption.bold())
+                        .foregroundStyle(Color.rose)
+                    Text(card.title)
+                        .font(.headline)
+                    Text(card.body)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 8)
+            }
+        }
+        Card(title: "隐私与数据") {
+            Text(store.privacyMessage)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Text("导出将弹出系统分享面板，可保存到「文件」App 或通过 AirDrop 发送。")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            VStack(spacing: 10) {
+                Button("导出数据") {
+                    Task { await store.exportData() }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.black)
+                .frame(maxWidth: .infinity)
+
+                Button("生成本地年度回顾（HTML）") {
+                    Task { await store.prepareYearReviewHTML() }
+                }
+                .buttonStyle(.bordered)
+                .frame(maxWidth: .infinity)
+
+                Button("删除账号") {
+                    Task { await store.deleteAccount() }
+                }
+                .buttonStyle(.bordered)
+                .tint(Color.rose)
+                .frame(maxWidth: .infinity)
+            }
+        }
+        Card(title: "完全离线模式") {
+            Text("只保留“法了！”和“被法了！”核心记录，不访问后端，不同步，不显示社交功能。")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Button("进入完全离线") {
+                offlineMode = true
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(.black)
         }
     }
 }
@@ -2529,14 +2552,3 @@ private func latestShortDate(_ records: [IntimacyRecord]) -> String {
     guard let latest = records.first else { return "暂无" }
     return String(latest.occurredAt.dropFirst(5))
 }
-
-ring {
-    guard let latest = records.first else { return "暂无" }
-    return String(latest.occurredAt.dropFirst(5))
-}
-
-ortDate(_ records: [IntimacyRecord]) -> String {
-    guard let latest = records.first else { return "暂无" }
-    return String(latest.occurredAt.dropFirst(5))
-}
-
